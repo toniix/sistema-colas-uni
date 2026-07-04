@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import {
+  Alert,
   Button,
   Card,
   Center,
@@ -12,6 +13,7 @@ import {
 } from '@mantine/core'
 import { BarChart } from '@mantine/charts'
 import {
+  IconAlertTriangle,
   IconClockHour4,
   IconDownload,
   IconTicket,
@@ -25,10 +27,22 @@ import { exportCSV, exportJSON } from '../../lib/export'
 
 export default function ReportesPage() {
   const [data, setData] = useState(null)
+  const [error, setError] = useState('')
 
   useEffect(() => {
-    api.reportes().then(setData)
+    api.reportes().then(setData).catch((e) => setError(e.message))
   }, [])
+
+  if (error) {
+    return (
+      <>
+        <PageHeader title="Reportes y métricas" />
+        <Alert color="red" variant="light" icon={<IconAlertTriangle size={18} />} title="Error de conexión">
+          {error}
+        </Alert>
+      </>
+    )
+  }
 
   if (!data) {
     return (
@@ -138,22 +152,28 @@ export default function ReportesPage() {
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Operador</Table.Th>
-                <Table.Th>Ventanilla</Table.Th>
                 <Table.Th ta="right">Turnos atendidos</Table.Th>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {porOperador.map((o) => (
-                <Table.Tr key={o.operador}>
-                  <Table.Td fw={600}>{o.operador}</Table.Td>
-                  <Table.Td>
-                    <Text c="dimmed">{o.ventanilla || '—'}</Text>
-                  </Table.Td>
-                  <Table.Td ta="right" fw={700}>
-                    {o.atendidos}
+              {porOperador.length === 0 ? (
+                <Table.Tr>
+                  <Table.Td colSpan={2}>
+                    <Text c="dimmed" ta="center" py="sm">
+                      Sin turnos finalizados todavía.
+                    </Text>
                   </Table.Td>
                 </Table.Tr>
-              ))}
+              ) : (
+                porOperador.map((o) => (
+                  <Table.Tr key={o.operador}>
+                    <Table.Td fw={600}>{o.operador}</Table.Td>
+                    <Table.Td ta="right" fw={700}>
+                      {o.atendidos}
+                    </Table.Td>
+                  </Table.Tr>
+                ))
+              )}
             </Table.Tbody>
           </Table>
         </Table.ScrollContainer>

@@ -6,9 +6,7 @@ import {
   Card,
   Grid,
   Group,
-  Loader,
   Modal,
-  ScrollArea,
   Select,
   Stack,
   Text,
@@ -17,10 +15,11 @@ import {
   Title,
 } from '@mantine/core'
 import {
+  IconAlertTriangle,
   IconArrowRight,
   IconBellRinging,
   IconCheck,
-  IconInfoCircle,
+  IconClockHour4,
   IconPlayerPlay,
   IconUsers,
 } from '@tabler/icons-react'
@@ -28,7 +27,7 @@ import { notifications } from '@mantine/notifications'
 import { useDisclosure } from '@mantine/hooks'
 import * as api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
-import { ESTADOS, SERVICIOS, servicioById } from '../lib/constants'
+import { ESTADOS } from '../lib/constants'
 import { fmtDuracion, fmtHora } from '../lib/format'
 import EstadoBadge from '../components/EstadoBadge'
 import PrioridadBadge from '../components/PrioridadBadge'
@@ -36,99 +35,154 @@ import PageHeader from '../components/PageHeader'
 
 export default function OperadorPage() {
   const { user } = useAuth()
-  const [servicioId, setServicioId] = useState(String(user.servicioId || SERVICIOS[0].id))
-  const [cola, setCola] = useState([])
+  const [servicios, setServicios] = useState([])
+  const [miServicio, setMiServicio] = useState(null)
+  const [queue, setQueue] = useState({ queueSize: 0, estimatedWaitMinutes: 0, current: null })
   const [activo, setActivo] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [ready, setReady] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  // Modales de cierre y derivación
-  const [cierre, cierreH] = useDisclosure(false)
+  // Modales de cancelación y derivación (finish no lleva observación en la API)
+  const [cancel, cancelH] = useDisclosure(false)
   const [deriv, derivH] = useDisclosure(false)
   const [observacion, setObservacion] = useState('')
   const [destino, setDestino] = useState('')
 
-  const cargar = useCallback(async () => {
-    const [c, a] = await Promise.all([
-      api.colaServicio(Number(servicioId)),
-      api.turnoActivoOperador(user.id),
-    ])
-    setCola(c)
-    setActivo(a)
-  }, [servicioId, user.id])
+  // Identifica el servicio asignado al operador autenticado.
+  const cargarServicios = useCallback(async () => {
+    const servs = await api.listServicios()
+    setServicios(servs)
+    const mio = servs.find((s) => s.operadorId === user.id) || null
+    setMiServicio(mio)
+    return mio
+  }, [user.id])
+
+  const refrescarCola = useCallback(
+    async (servicio) => {
+      const s = servicio || miServicio
+      if (!s) return
+      const q = await api.colaEstado(s.id)
+      setQueue(q)
+      // Recupera el turno en curso al recargar la página (si es mío y sigue activo)
+      setActivo((prev) => {
+        if (prev) return prev
+        const c = q.current
+        if (c && c.operadorId === user.id && (c.estado === ESTADOS.LLAMADO || c.estado === ESTADOS.EN_ATENCION)) {
+          return c
+        }
+        return prev
+      })
+    },
+    [miServicio, user.id],
+  )
 
   useEffect(() => {
-    // setState en callback async (.finally), no síncrono en el cuerpo del efecto
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    cargar().finally(() => setLoading(false))
-    const iv = setInterval(cargar, 4000)
+    let iv
+    ;(async () => {
+      try {
+        const mio = await cargarServicios()
+        await refrescarCola(mio)
+        setError('')
+        iv = setInterval(() => refrescarCola(mio).catch(() => {}), 4000)
+      } catch (e) {
+        setError(e.message)
+      } finally {
+        setReady(true)
+      }
+    })()
     return () => clearInterval(iv)
-  }, [cargar])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cargarServicios])
 
-  async function llamarSiguiente() {
+  async function accion(fn, okMsg) {
     setBusy(true)
     try {
-      const t = await api.llamarSiguiente({ servicioId: Number(servicioId), operador: user })
+      await fn()
+      if (okMsg) notifications.show({ ...okMsg })
+      await refrescarCola()
+    } catch (e) {
+      notifications.show({ title: 'No se pudo completar', message: e.message, color: 'red' })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const llamarSiguiente = () =>
+    accion(async () => {
+      const t = await api.llamarSiguiente()
+      setActivo(t)
       notifications.show({
         title: 'Turno llamado',
         message: `${t.codigo} · ${t.estudiante}`,
         color: 'teal',
         icon: <IconBellRinging size={18} />,
       })
-      await cargar()
-    } catch (e) {
-      notifications.show({ title: 'No se pudo llamar', message: e.message, color: 'red' })
-    } finally {
-      setBusy(false)
-    }
-  }
+    })
 
-  async function iniciar() {
-    setBusy(true)
-    try {
-      await api.iniciarAtencion({ turnoId: activo.id, operador: user })
-      await cargar()
-    } finally {
-      setBusy(false)
-    }
-  }
+  const iniciar = () =>
+    accion(async () => {
+      const t = await api.iniciarAtencion(activo.id)
+      setActivo(t)
+    })
 
-  async function finalizar() {
-    setBusy(true)
-    try {
-      await api.finalizarTurno({ turnoId: activo.id, observacion, operador: user })
-      notifications.show({ message: `Turno ${activo.codigo} finalizado`, color: 'teal', icon: <IconCheck size={18} /> })
+  const finalizar = () =>
+    accion(async () => {
+      await api.finalizarTurno(activo.id)
+      const cod = activo.codigo
+      setActivo(null)
+      notifications.show({ message: `Turno ${cod} finalizado`, color: 'teal', icon: <IconCheck size={18} /> })
+    })
+
+  const anular = () =>
+    accion(async () => {
+      await api.anularTurno(activo.id, observacion || 'Anulado por el operador')
+      const cod = activo.codigo
+      setActivo(null)
       setObservacion('')
-      cierreH.close()
-      await cargar()
-    } finally {
-      setBusy(false)
-    }
-  }
+      cancelH.close()
+      notifications.show({ message: `Turno ${cod} anulado`, color: 'gray' })
+    })
 
-  async function derivar() {
-    if (!destino) return
-    setBusy(true)
-    try {
-      const { destino: nuevo } = await api.derivarTurno({
-        turnoId: activo.id,
-        servicioDestinoId: Number(destino),
-        motivo: observacion || 'Derivación entre servicios',
-        operador: user,
+  const derivar = () =>
+    accion(async () => {
+      const original = await api.derivarTurno(activo.id, {
+        targetServiceId: Number(destino),
+        reason: observacion || 'Derivación entre servicios',
       })
-      notifications.show({
-        title: 'Turno derivado',
-        message: `Nuevo turno ${nuevo.codigo} en ${servicioById(nuevo.servicioId).nombre}`,
-        color: 'grape',
-        icon: <IconArrowRight size={18} />,
-      })
+      setActivo(null)
       setObservacion('')
       setDestino('')
       derivH.close()
-      await cargar()
-    } finally {
-      setBusy(false)
-    }
+      notifications.show({
+        title: 'Turno derivado',
+        message: `${original.codigo} → ${original.derivadoA || 'otro servicio'}`,
+        color: 'grape',
+        icon: <IconArrowRight size={18} />,
+      })
+    })
+
+  if (error) {
+    return (
+      <>
+        <PageHeader title="Panel de atención" />
+        <Alert color="red" variant="light" icon={<IconAlertTriangle size={18} />} title="Error de conexión">
+          {error}
+        </Alert>
+      </>
+    )
+  }
+
+  if (ready && !miServicio) {
+    return (
+      <>
+        <PageHeader title="Panel de atención" subtitle={user.nombre} />
+        <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={18} />} title="Sin servicio asignado">
+          Aún no tienes una ventanilla/servicio asignado. Pídele a un administrador que te
+          asigne uno para poder atender turnos.
+        </Alert>
+      </>
+    )
   }
 
   const enAtencion = activo?.estado === ESTADOS.EN_ATENCION
@@ -138,17 +192,7 @@ export default function OperadorPage() {
     <>
       <PageHeader
         title="Panel de atención"
-        subtitle={`Ventanilla ${user.ventanilla || '—'} · ${user.nombre}`}
-        actions={
-          <Select
-            label="Servicio a atender"
-            data={SERVICIOS.map((s) => ({ value: String(s.id), label: s.nombre }))}
-            value={servicioId}
-            onChange={setServicioId}
-            allowDeselect={false}
-            w={220}
-          />
-        }
+        subtitle={`${user.nombre}${miServicio ? ` · ${miServicio.nombre} (${miServicio.codigo})` : ''}`}
       />
 
       <Grid gutter="lg">
@@ -166,8 +210,7 @@ export default function OperadorPage() {
                   <IconUsers size={26} />
                 </ThemeIcon>
                 <Text c="dimmed" ta="center" maw={320}>
-                  No tienes ningún turno en curso. Llama al siguiente de la cola para
-                  comenzar.
+                  No tienes ningún turno en curso. Llama al siguiente de la cola para comenzar.
                 </Text>
                 <Button
                   mt="sm"
@@ -175,13 +218,13 @@ export default function OperadorPage() {
                   leftSection={<IconBellRinging size={18} />}
                   onClick={llamarSiguiente}
                   loading={busy}
-                  disabled={cola.length === 0}
+                  disabled={queue.queueSize === 0}
                 >
                   Llamar siguiente turno
                 </Button>
-                {cola.length === 0 && (
+                {queue.queueSize === 0 && (
                   <Text size="xs" c="dimmed">
-                    La cola de {servicioById(Number(servicioId)).nombre} está vacía.
+                    La cola de {miServicio?.nombre} está vacía.
                   </Text>
                 )}
               </Stack>
@@ -203,40 +246,32 @@ export default function OperadorPage() {
                     <Group gap="xs">
                       <PrioridadBadge prioridad={activo.prioridad} />
                       <Badge variant="outline" color="gray">
-                        {servicioById(activo.servicioId).nombre}
+                        {activo.servicioNombre}
                       </Badge>
                     </Group>
-                    {activo.derivadoDe && (
+                    {activo.derivadoA && (
                       <Text size="xs" c="grape">
-                        Derivado desde {activo.derivadoDe}
+                        Derivación relacionada: {activo.derivadoA}
                       </Text>
                     )}
                     <Text size="xs" c="dimmed">
-                      Llamado a las {fmtHora(activo.calledAt)} ·{' '}
-                      {enAtencion
-                        ? `en atención hace ${fmtDuracion(activo.startedAt)}`
-                        : 'esperando inicio'}
+                      Llamado a las {fmtHora(activo.calledAt)}
+                      {enAtencion && activo.startedAt
+                        ? ` · en atención hace ${fmtDuracion(activo.startedAt)}`
+                        : ' · esperando inicio'}
                     </Text>
                   </Stack>
                 </Group>
 
                 <Group mt="xl" gap="sm">
                   {llamado && (
-                    <Button
-                      leftSection={<IconPlayerPlay size={18} />}
-                      onClick={iniciar}
-                      loading={busy}
-                    >
+                    <Button leftSection={<IconPlayerPlay size={18} />} onClick={iniciar} loading={busy}>
                       Iniciar atención
                     </Button>
                   )}
                   {enAtencion && (
                     <>
-                      <Button
-                        color="teal"
-                        leftSection={<IconCheck size={18} />}
-                        onClick={cierreH.open}
-                      >
+                      <Button color="teal" leftSection={<IconCheck size={18} />} onClick={finalizar} loading={busy}>
                         Finalizar
                       </Button>
                       <Button
@@ -249,19 +284,7 @@ export default function OperadorPage() {
                       </Button>
                     </>
                   )}
-                  <Button
-                    variant="subtle"
-                    color="red"
-                    ml="auto"
-                    onClick={async () => {
-                      await api.anularTurno({
-                        turnoId: activo.id,
-                        motivo: 'Anulado por operador',
-                        usuario: user,
-                      })
-                      await cargar()
-                    }}
-                  >
+                  <Button variant="subtle" color="red" ml="auto" onClick={cancelH.open}>
                     Anular
                   </Button>
                 </Group>
@@ -270,55 +293,55 @@ export default function OperadorPage() {
           </Card>
         </Grid.Col>
 
-        {/* Cola del servicio */}
+        {/* Estado de la cola */}
         <Grid.Col span={{ base: 12, md: 5 }}>
           <Card padding="lg">
-            <Group justify="space-between" mb="sm">
-              <Group gap="xs">
-                <Title order={4}>En cola</Title>
-                <Badge variant="light" color="blue">
-                  {cola.length}
-                </Badge>
-              </Group>
-              {loading && <Loader size="xs" />}
+            <Title order={4} mb="md">
+              Cola de {miServicio?.nombre}
+            </Title>
+
+            <Group grow mb="md">
+              <Stack gap={2} align="center">
+                <Text fw={700} fz={40} lh={1} c="blue">
+                  {queue.queueSize}
+                </Text>
+                <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                  En espera
+                </Text>
+              </Stack>
+              <Stack gap={2} align="center">
+                <Group gap={4} align="baseline">
+                  <Text fw={700} fz={40} lh={1}>
+                    {queue.estimatedWaitMinutes}
+                  </Text>
+                  <Text size="sm" c="dimmed">
+                    min
+                  </Text>
+                </Group>
+                <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
+                  Espera est.
+                </Text>
+              </Stack>
             </Group>
 
-            {cola.length === 0 ? (
-              <Alert variant="light" color="gray" icon={<IconInfoCircle size={18} />}>
-                No hay turnos en espera.
-              </Alert>
+            {queue.current ? (
+              <Card padding="sm" bg="var(--mantine-color-gray-0)">
+                <Group justify="space-between">
+                  <Group gap="xs">
+                    <IconClockHour4 size={16} />
+                    <Text size="sm" c="dimmed">
+                      Atendiendo ahora
+                    </Text>
+                  </Group>
+                  <Text fw={700} ff="monospace">
+                    {queue.current.codigo}
+                  </Text>
+                </Group>
+              </Card>
             ) : (
-              <ScrollArea.Autosize mah={420}>
-                <Stack gap={0}>
-                  {cola.map((t, i) => (
-                    <Group
-                      key={t.id}
-                      justify="space-between"
-                      wrap="nowrap"
-                      px="xs"
-                      py="sm"
-                      style={{
-                        borderTop: i ? '1px solid var(--mantine-color-gray-2)' : 'none',
-                      }}
-                    >
-                      <Group gap="sm" wrap="nowrap">
-                        <Text c="dimmed" fw={700} w={22} ta="center">
-                          {i + 1}
-                        </Text>
-                        <div>
-                          <Text fw={600} ff="monospace">
-                            {t.codigo}
-                          </Text>
-                          <Text size="xs" c="dimmed">
-                            {t.estudiante} · {fmtHora(t.createdAt)}
-                          </Text>
-                        </div>
-                      </Group>
-                      <PrioridadBadge prioridad={t.prioridad} />
-                    </Group>
-                  ))}
-                </Stack>
-              </ScrollArea.Autosize>
+              <Text size="sm" c="dimmed" ta="center" py="xs">
+                Nadie en atención en este momento.
+              </Text>
             )}
 
             <Button
@@ -328,7 +351,7 @@ export default function OperadorPage() {
               leftSection={<IconBellRinging size={18} />}
               onClick={llamarSiguiente}
               loading={busy}
-              disabled={cola.length === 0 || !!activo}
+              disabled={queue.queueSize === 0 || !!activo}
             >
               Llamar siguiente
             </Button>
@@ -341,25 +364,25 @@ export default function OperadorPage() {
         </Grid.Col>
       </Grid>
 
-      {/* Modal cierre */}
-      <Modal opened={cierre} onClose={cierreH.close} title="Finalizar atención" centered>
+      {/* Modal anular */}
+      <Modal opened={cancel} onClose={cancelH.close} title="Anular turno" centered>
         <Text size="sm" c="dimmed" mb="md">
           Turno <b>{activo?.codigo}</b> · {activo?.estudiante}
         </Text>
         <Textarea
-          label="Observación (motivo/resultado)"
-          placeholder="Ej. Trámite completado, documento entregado…"
+          label="Motivo de la anulación"
+          placeholder="Ej. El estudiante no se presentó"
           value={observacion}
           onChange={(e) => setObservacion(e.currentTarget.value)}
           minRows={3}
           autosize
         />
         <Group justify="flex-end" mt="lg">
-          <Button variant="default" onClick={cierreH.close}>
-            Cancelar
+          <Button variant="default" onClick={cancelH.close}>
+            Cerrar
           </Button>
-          <Button color="teal" onClick={finalizar} loading={busy} leftSection={<IconCheck size={16} />}>
-            Confirmar cierre
+          <Button color="red" onClick={anular} loading={busy}>
+            Anular turno
           </Button>
         </Group>
       </Modal>
@@ -373,10 +396,9 @@ export default function OperadorPage() {
           <Select
             label="Servicio destino"
             placeholder="Selecciona un servicio"
-            data={SERVICIOS.filter((s) => s.id !== activo?.servicioId).map((s) => ({
-              value: String(s.id),
-              label: s.nombre,
-            }))}
+            data={servicios
+              .filter((s) => s.id !== miServicio?.id && s.activo)
+              .map((s) => ({ value: String(s.id), label: s.nombre }))}
             value={destino}
             onChange={setDestino}
           />

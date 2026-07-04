@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
+  Alert,
   Badge,
   Card,
   Center,
@@ -10,24 +11,39 @@ import {
   ThemeIcon,
   Title,
 } from '@mantine/core'
-import { IconBellRinging, IconVolume } from '@tabler/icons-react'
+import { IconAlertTriangle, IconBellRinging, IconVolume } from '@tabler/icons-react'
 import * as api from '../api/client'
-import { ESTADOS, servicioById } from '../lib/constants'
+import { ESTADOS } from '../lib/constants'
 import { fmtHora } from '../lib/format'
 import PageHeader from '../components/PageHeader'
 
 export default function PantallaPage() {
-  const [turnos, setTurnos] = useState([])
+  const [colas, setColas] = useState([])
+  const [error, setError] = useState('')
 
-  useEffect(() => {
-    const load = () => api.turnosEnPantalla().then(setTurnos)
-    load()
-    const iv = setInterval(load, 3000)
-    return () => clearInterval(iv)
+  const cargar = useCallback(async () => {
+    try {
+      const servicios = await api.listServicios()
+      const activos = servicios.filter((s) => s.activo)
+      const estados = await Promise.all(activos.map((s) => api.colaEstado(s.id)))
+      // Solo los servicios que tienen un turno siendo llamado / atendido
+      setColas(estados.filter((q) => q.current))
+      setError('')
+    } catch (e) {
+      setError(e.message)
+    }
   }, [])
 
-  const destacado = turnos[0]
-  const resto = turnos.slice(1)
+  useEffect(() => {
+    // cargar() hace setState de forma asíncrona (tras await), no en el cuerpo del efecto
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    cargar()
+    const iv = setInterval(cargar, 3000)
+    return () => clearInterval(iv)
+  }, [cargar])
+
+  const destacado = colas[0]
+  const resto = colas.slice(1)
 
   return (
     <>
@@ -41,7 +57,11 @@ export default function PantallaPage() {
         }
       />
 
-      {turnos.length === 0 ? (
+      {error ? (
+        <Alert color="red" variant="light" icon={<IconAlertTriangle size={18} />} title="Error de conexión">
+          {error}
+        </Alert>
+      ) : colas.length === 0 ? (
         <Center h={300}>
           <Stack align="center" gap="xs">
             <ThemeIcon variant="light" color="gray" size={54} radius="xl">
@@ -67,18 +87,20 @@ export default function PantallaPage() {
                 </Text>
               </Group>
               <Text fw={800} fz={72} ff="monospace" lh={1} c="teal.8">
-                {destacado.codigo}
+                {destacado.current.codigo}
               </Text>
               <Text fz="xl" fw={600} mt="sm">
-                Ventanilla {destacado.ventanilla}
+                {destacado.serviceName}
               </Text>
               <Group justify="space-between" mt="md">
-                <Text c="dimmed">{servicioById(destacado.servicioId).nombre}</Text>
+                <Text c="dimmed">
+                  {destacado.current.operadorNombre || 'Ventanilla'}
+                </Text>
                 <Badge
-                  color={destacado.estado === ESTADOS.LLAMADO ? 'yellow' : 'teal'}
+                  color={destacado.current.estado === ESTADOS.LLAMADO ? 'yellow' : 'teal'}
                   variant="light"
                 >
-                  {destacado.estado === ESTADOS.LLAMADO ? 'Llamado' : 'En atención'}
+                  {destacado.current.estado === ESTADOS.LLAMADO ? 'Llamado' : 'En atención'}
                 </Badge>
               </Group>
             </Card>
@@ -86,7 +108,7 @@ export default function PantallaPage() {
 
           <Grid.Col span={{ base: 12, md: 7 }}>
             <Title order={4} mb="sm" c="dimmed">
-              Otros turnos activos
+              Otros servicios
             </Title>
             {resto.length === 0 ? (
               <Text c="dimmed" size="sm">
@@ -94,17 +116,17 @@ export default function PantallaPage() {
               </Text>
             ) : (
               <Grid gutter="md">
-                {resto.map((t) => (
-                  <Grid.Col span={{ base: 6, sm: 4 }} key={t.id}>
+                {resto.map((q) => (
+                  <Grid.Col span={{ base: 6, sm: 4 }} key={q.serviceId}>
                     <Card padding="md">
                       <Text fw={700} fz={30} ff="monospace" lh={1} c="teal.7">
-                        {t.codigo}
+                        {q.current.codigo}
                       </Text>
                       <Text size="sm" fw={600} mt={6}>
-                        Vent. {t.ventanilla}
+                        {q.serviceName}
                       </Text>
                       <Text size="xs" c="dimmed">
-                        {servicioById(t.servicioId).nombre} · {fmtHora(t.calledAt)}
+                        {q.current.operadorNombre || 'Ventanilla'} · {fmtHora(q.current.calledAt)}
                       </Text>
                     </Card>
                   </Grid.Col>

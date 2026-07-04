@@ -13,22 +13,23 @@ import {
   TextInput,
   Title,
 } from '@mantine/core'
-import { IconAlertCircle, IconLock, IconMail } from '@tabler/icons-react'
+import { IconAlertCircle, IconLock, IconUser } from '@tabler/icons-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { rutaInicioPorRol } from '../lib/rutas'
 import Brand from '../components/Brand'
 
+// Usuarios de referencia según el seed del backend. Ajusta si tu equipo usa otros.
 const DEMO = [
-  { rol: 'Administrador', email: 'admin@uni.edu.pe', password: 'admin123' },
-  { rol: 'Operador', email: 'operador@uni.edu.pe', password: 'operador123' },
-  { rol: 'Estudiante', email: 'estudiante@uni.edu.pe', password: 'estudiante123' },
+  { rol: 'Administrador', username: 'admin', password: 'admin123' },
+  { rol: 'Operador', username: 'operador', password: 'operador123' },
+  { rol: 'Estudiante', username: 'estudiante', password: 'estudiante123' },
 ]
 
 export default function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
@@ -38,7 +39,7 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     try {
-      const user = await login(email, password)
+      const user = await login(username, password)
       navigate(rutaInicioPorRol(user.rol), { replace: true })
     } catch (err) {
       setError(err.message)
@@ -48,7 +49,7 @@ export default function LoginPage() {
   }
 
   function usarDemo(d) {
-    setEmail(d.email)
+    setUsername(d.username)
     setPassword(d.password)
     setError('')
   }
@@ -88,13 +89,13 @@ export default function LoginPage() {
                 </Alert>
               )}
               <TextInput
-                label="Correo institucional"
-                placeholder="usuario@uni.edu.pe"
-                leftSection={<IconMail size={16} />}
-                value={email}
-                onChange={(e) => setEmail(e.currentTarget.value)}
+                label="Usuario"
+                placeholder="tu usuario"
+                leftSection={<IconUser size={16} />}
+                value={username}
+                onChange={(e) => setUsername(e.currentTarget.value)}
                 required
-                type="email"
+                autoComplete="username"
               />
               <PasswordInput
                 label="Contraseña"
@@ -115,7 +116,7 @@ export default function LoginPage() {
           <Stack gap="xs">
             {DEMO.map((d) => (
               <Group
-                key={d.email}
+                key={d.username}
                 justify="space-between"
                 wrap="nowrap"
                 px="sm"
@@ -130,7 +131,7 @@ export default function LoginPage() {
                     {d.rol}
                   </Text>
                   <Text size="xs" c="dimmed" truncate>
-                    {d.email}
+                    {d.username} · {d.password}
                   </Text>
                 </div>
                 <Anchor component="button" type="button" size="sm" onClick={() => usarDemo(d)}>

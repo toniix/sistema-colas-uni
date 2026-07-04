@@ -15,6 +15,7 @@ import {
   Title,
 } from '@mantine/core'
 import {
+  IconAlertTriangle,
   IconCheck,
   IconClockHour4,
   IconInfoCircle,
@@ -23,52 +24,34 @@ import {
 } from '@tabler/icons-react'
 import { notifications } from '@mantine/notifications'
 import * as api from '../api/client'
-import { useAuth } from '../auth/AuthContext'
-import {
-  ESTADOS,
-  ESTADOS_ACTIVOS,
-  PRIORIDADES,
-  SERVICIOS,
-  servicioById,
-} from '../lib/constants'
+import { ESTADOS, ESTADOS_ACTIVOS, PRIORIDADES } from '../lib/constants'
 import { fmtHora } from '../lib/format'
 import EstadoBadge from '../components/EstadoBadge'
 import PrioridadBadge from '../components/PrioridadBadge'
 import PageHeader from '../components/PageHeader'
 
 export default function EstudiantePage() {
-  const { user } = useAuth()
-  const [servicioId, setServicioId] = useState('2')
+  const [servicioId, setServicioId] = useState(null)
   const [prioridad, setPrioridad] = useState(PRIORIDADES.NORMAL)
   const [servicios, setServicios] = useState([])
   const [misTurnos, setMisTurnos] = useState([])
-  const [colaPos, setColaPos] = useState({})
   const [loading, setLoading] = useState(true)
   const [creando, setCreando] = useState(false)
+  const [error, setError] = useState('')
 
   const cargar = useCallback(async () => {
-    const [servs, turnos] = await Promise.all([
-      api.listServicios(),
-      api.listTurnos({ estudiante: user.nombre }),
-    ])
-    setServicios(servs)
-    setMisTurnos(turnos)
-
-    // Posición en cola de los turnos activos del estudiante
-    const activos = turnos.filter((t) => t.estado === ESTADOS.EN_COLA)
-    const pos = {}
-    await Promise.all(
-      activos.map(async (t) => {
-        const cola = await api.colaServicio(t.servicioId)
-        const idx = cola.findIndex((c) => c.id === t.id)
-        pos[t.id] = { pos: idx + 1, total: cola.length }
-      }),
-    )
-    setColaPos(pos)
-  }, [user.nombre])
+    try {
+      const [servs, turnos] = await Promise.all([api.listServicios(), api.misTurnos()])
+      setServicios(servs.filter((s) => s.activo))
+      setMisTurnos(turnos)
+      setError('')
+      setServicioId((prev) => prev ?? (servs[0] ? String(servs[0].id) : null))
+    } catch (e) {
+      setError(e.message)
+    }
+  }, [])
 
   useEffect(() => {
-    // setState en callback async (.finally), no síncrono en el cuerpo del efecto
     // eslint-disable-next-line react-hooks/set-state-in-effect
     cargar().finally(() => setLoading(false))
     const iv = setInterval(cargar, 5000) // refresco de estado en vivo
@@ -76,31 +59,37 @@ export default function EstudiantePage() {
   }, [cargar])
 
   async function pedirTurno() {
+    if (!servicioId) return
     setCreando(true)
     try {
-      const t = await api.crearTurno({
-        servicioId: Number(servicioId),
-        estudiante: user.nombre,
-        prioridad,
-        usuario: user.nombre,
-      })
+      const t = await api.crearTicket({ serviceId: Number(servicioId), type: prioridad })
       notifications.show({
         title: 'Turno generado',
-        message: `Tu turno es ${t.codigo} en ${servicioById(t.servicioId).nombre}`,
+        message: `Tu turno es ${t.codigo} en ${t.servicioNombre}`,
         color: 'teal',
         icon: <IconCheck size={18} />,
       })
       setPrioridad(PRIORIDADES.NORMAL)
       await cargar()
+    } catch (e) {
+      notifications.show({
+        title: 'No se pudo generar el turno',
+        message: e.message,
+        color: 'red',
+      })
     } finally {
       setCreando(false)
     }
   }
 
   async function anular(t) {
-    await api.anularTurno({ turnoId: t.id, motivo: 'Cancelado por el estudiante', usuario: user })
-    notifications.show({ message: `Turno ${t.codigo} anulado`, color: 'gray' })
-    await cargar()
+    try {
+      await api.anularTurno(t.id, 'Cancelado por el estudiante')
+      notifications.show({ message: `Turno ${t.codigo} anulado`, color: 'gray' })
+      await cargar()
+    } catch (e) {
+      notifications.show({ title: 'Error', message: e.message, color: 'red' })
+    }
   }
 
   const activos = useMemo(
@@ -108,24 +97,37 @@ export default function EstudiantePage() {
     [misTurnos],
   )
   const historial = useMemo(
-    () => misTurnos.filter((t) => !ESTADOS_ACTIVOS.includes(t.estado)).slice(0, 6),
+    () =>
+      misTurnos
+        .filter((t) => !ESTADOS_ACTIVOS.includes(t.estado))
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 6),
     [misTurnos],
   )
 
-  const servicioOptions = SERVICIOS.map((s) => {
-    const info = servicios.find((x) => x.id === s.id)
-    return {
-      value: String(s.id),
-      label: info ? `${s.nombre} · ${info.enCola} en cola` : s.nombre,
-    }
-  })
+  const servicioOptions = servicios.map((s) => ({
+    value: String(s.id),
+    label: s.nombre,
+  }))
 
   return (
     <>
       <PageHeader
-        title={`Hola, ${user.nombre.split(' ')[0]}`}
-        subtitle="Solicita un turno y sigue su estado en tiempo real."
+        title="Pedir un turno"
+        subtitle="Solicita tu turno y sigue su estado en tiempo real."
       />
+
+      {error && (
+        <Alert
+          variant="light"
+          color="red"
+          icon={<IconAlertTriangle size={18} />}
+          mb="lg"
+          title="No se pudo conectar con el servidor"
+        >
+          {error}
+        </Alert>
+      )}
 
       <Grid gutter="lg">
         <Grid.Col span={{ base: 12, md: 5 }}>
@@ -134,17 +136,19 @@ export default function EstudiantePage() {
               <ThemeIcon variant="light" color="teal" radius="md">
                 <IconTicket size={18} />
               </ThemeIcon>
-              <Title order={4}>Pedir un turno</Title>
+              <Title order={4}>Nuevo turno</Title>
             </Group>
 
             <Stack gap="md">
               <Select
                 label="Servicio"
+                placeholder={servicios.length ? 'Elige un servicio' : 'Sin servicios disponibles'}
                 data={servicioOptions}
                 value={servicioId}
                 onChange={setServicioId}
                 allowDeselect={false}
                 checkIconPosition="right"
+                disabled={servicios.length === 0}
               />
 
               <Radio.Group
@@ -155,7 +159,7 @@ export default function EstudiantePage() {
               >
                 <Group mt="xs" gap="sm">
                   <Radio value={PRIORIDADES.NORMAL} label="Normal" />
-                  <Radio value={PRIORIDADES.PREFERENTE} label="Preferente" />
+                  <Radio value={PRIORIDADES.PREFERENCIAL} label="Preferente" />
                 </Group>
               </Radio.Group>
 
@@ -163,6 +167,7 @@ export default function EstudiantePage() {
                 leftSection={<IconTicket size={18} />}
                 onClick={pedirTurno}
                 loading={creando}
+                disabled={!servicioId}
                 mt="xs"
               >
                 Generar turno
@@ -184,12 +189,7 @@ export default function EstudiantePage() {
           ) : (
             <Stack gap="sm">
               {activos.map((t) => (
-                <TurnoActivoCard
-                  key={t.id}
-                  turno={t}
-                  posicion={colaPos[t.id]}
-                  onAnular={() => anular(t)}
-                />
+                <TurnoActivoCard key={t.id} turno={t} onAnular={() => anular(t)} />
               ))}
             </Stack>
           )}
@@ -216,7 +216,7 @@ export default function EstudiantePage() {
                           {t.codigo}
                         </Text>
                         <Text size="sm" c="dimmed">
-                          {servicioById(t.servicioId).nombre}
+                          {t.servicioNombre}
                         </Text>
                       </Group>
                       <Group gap="sm">
@@ -237,8 +237,7 @@ export default function EstudiantePage() {
   )
 }
 
-function TurnoActivoCard({ turno, posicion, onAnular }) {
-  const servicio = servicioById(turno.servicioId)
+function TurnoActivoCard({ turno, onAnular }) {
   const llamado = turno.estado === ESTADOS.LLAMADO || turno.estado === ESTADOS.EN_ATENCION
 
   return (
@@ -254,7 +253,7 @@ function TurnoActivoCard({ turno, posicion, onAnular }) {
             </Text>
           </Stack>
           <Stack gap={6}>
-            <Text fw={600}>{servicio.nombre}</Text>
+            <Text fw={600}>{turno.servicioNombre}</Text>
             <Group gap="xs">
               <EstadoBadge estado={turno.estado} />
               <PrioridadBadge prioridad={turno.prioridad} />
@@ -263,14 +262,14 @@ function TurnoActivoCard({ turno, posicion, onAnular }) {
         </Group>
 
         <Stack gap={6} align="flex-end">
-          {turno.estado === ESTADOS.EN_COLA && posicion && (
+          {turno.estado === ESTADOS.EN_COLA && turno.posicion != null && (
             <Badge
               size="lg"
               variant="light"
-              color={posicion.pos === 1 ? 'teal' : 'blue'}
+              color={turno.posicion === 1 ? 'teal' : 'blue'}
               leftSection={<IconClockHour4 size={14} />}
             >
-              {posicion.pos === 1 ? 'Eres el siguiente' : `${posicion.pos}º en la cola`}
+              {turno.posicion === 1 ? 'Eres el siguiente' : `${turno.posicion}º en la cola`}
             </Badge>
           )}
           {llamado && (

@@ -64,8 +64,8 @@ export default function AppLayout() {
               <Menu.Item
                 color="red"
                 leftSection={<IconLogout size={16} />}
-                onClick={() => {
-                  logout()
+                onClick={async () => {
+                  await logout()
                   navigate('/login')
                 }}
               >

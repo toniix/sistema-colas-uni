@@ -1,319 +1,221 @@
-// Capa de acceso a datos. Hoy resuelve contra el mock en memoria (mockDb),
-// pero la firma imita un cliente REST: cada función es async y devuelve datos
-// planos. Para conectar al backend Spring Boot basta reemplazar el cuerpo por
-// llamadas `fetch(`${API_URL}/...`)` sin tocar los componentes.
+// Cliente de la API REST del backend Sistema de Colas UNI.
+// Cada función llama a un endpoint documentado en api_documentation.md y
+// devuelve el modelo interno del frontend a través de los adaptadores.
+import { http } from './http'
 import {
-  auditoria,
-  contadores,
-  nextTurnoId,
-  registrarAuditoria,
-  turnos,
-  usuarios,
-} from './mockDb'
-import {
-  ESTADOS,
-  ESTADOS_ACTIVOS,
-  PRIORIDADES,
-  SERVICIOS,
-  TRANSICIONES,
-  servicioById,
-} from '../lib/constants'
+  adaptAuditoria,
+  adaptServicio,
+  adaptTicket,
+  adaptUser,
+} from './adapters'
+import { ESTADOS } from '../lib/constants'
 import { minutosEntre } from '../lib/format'
 
-const delay = (ms = 260) => new Promise((r) => setTimeout(r, ms))
-const clone = (v) => JSON.parse(JSON.stringify(v))
-
-// ---- Auth -------------------------------------------------------------------
-export async function login(email, password) {
-  await delay()
-  const u = usuarios.find(
-    (x) => x.email.toLowerCase() === email.trim().toLowerCase(),
+// Construye un querystring a partir de un objeto ({page,size,sort}) ignorando vacíos.
+function qs(params = {}) {
+  const entries = Object.entries(params).filter(
+    ([, v]) => v !== undefined && v !== null && v !== '',
   )
-  if (!u || u.password !== password) {
-    registrarAuditoria({
-      usuario: email,
-      accion: 'LOGIN',
-      resultado: 'ERROR',
-      detalle: 'Credenciales inválidas',
-    })
-    throw new Error('Correo o contraseña incorrectos')
+  return entries.length ? `?${new URLSearchParams(entries)}` : ''
+}
+
+// Normaliza una respuesta paginada de Spring (Page<T>) al frontend.
+function adaptPage(page, adapt) {
+  return {
+    items: (page?.content ?? []).map(adapt),
+    total: page?.totalElements ?? 0,
+    totalPages: page?.totalPages ?? 0,
+    last: page?.last ?? true,
   }
-  registrarAuditoria({
-    usuario: u.nombre,
-    accion: 'LOGIN',
-    resultado: 'OK',
-    detalle: 'Inicio de sesión',
-  })
-  const { password: _p, ...safe } = u
-  // Token simple con expiración (demo). El backend puede emitir JWT real.
-  const token = btoa(`${u.id}:${Date.now() + 1000 * 60 * 60 * 8}`)
-  return { user: clone(safe), token }
 }
 
-// ---- Servicios --------------------------------------------------------------
-export async function listServicios() {
-  await delay(120)
-  return SERVICIOS.map((s) => {
-    const enCola = turnos.filter(
-      (t) => t.servicioId === s.id && t.estado === ESTADOS.EN_COLA,
-    ).length
-    const atendiendo = turnos.filter(
-      (t) =>
-        t.servicioId === s.id &&
-        (t.estado === ESTADOS.LLAMADO || t.estado === ESTADOS.EN_ATENCION),
-    ).length
-    return { ...s, enCola, atendiendo }
-  })
-}
-
-// ---- Turnos -----------------------------------------------------------------
-export async function listTurnos(filtro = {}) {
-  await delay(120)
-  let data = [...turnos]
-  if (filtro.servicioId) data = data.filter((t) => t.servicioId === filtro.servicioId)
-  if (filtro.estado) data = data.filter((t) => t.estado === filtro.estado)
-  if (filtro.estados) data = data.filter((t) => filtro.estados.includes(t.estado))
-  if (filtro.estudiante)
-    data = data.filter((t) => t.estudiante === filtro.estudiante)
-  return clone(data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)))
-}
-
-// Cola ordenada: preferentes primero, luego por orden de llegada
-export async function colaServicio(servicioId) {
-  await delay(120)
-  const cola = turnos
-    .filter((t) => t.servicioId === servicioId && t.estado === ESTADOS.EN_COLA)
-    .sort((a, b) => {
-      if (a.prioridad !== b.prioridad)
-        return a.prioridad === PRIORIDADES.PREFERENTE ? -1 : 1
-      return new Date(a.createdAt) - new Date(b.createdAt)
-    })
-  return clone(cola)
-}
-
-// Turno en atención/llamado por un operador (solo puede tener uno a la vez)
-export async function turnoActivoOperador(operadorId) {
-  await delay(80)
-  const t = turnos.find(
-    (x) =>
-      x.operadorId === operadorId &&
-      (x.estado === ESTADOS.LLAMADO || x.estado === ESTADOS.EN_ATENCION),
+// ---- Autenticación (/api/auth) ---------------------------------------------
+export async function login(username, password) {
+  const data = await http.post(
+    '/api/auth/login',
+    { username, password },
+    { auth: false },
   )
-  return t ? clone(t) : null
+  return {
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken,
+    user: adaptUser(data.user),
+  }
 }
 
-export async function crearTurno({ servicioId, estudiante, prioridad, usuario }) {
-  await delay()
-  contadores[servicioId] += 1
-  const s = servicioById(servicioId)
-  const codigo = `${s.codigo}-${String(contadores[servicioId]).padStart(3, '0')}`
-  const turno = {
-    id: nextTurnoId(),
-    codigo,
-    servicioId,
-    estudiante,
-    prioridad: prioridad || PRIORIDADES.NORMAL,
-    estado: ESTADOS.EN_COLA, // Creado -> En cola de inmediato
-    createdAt: new Date().toISOString(),
-    calledAt: null,
-    startedAt: null,
-    finishedAt: null,
-    operadorId: null,
-    observacion: null,
-    derivadoDe: null,
+export async function logout() {
+  // Best-effort: si falla (token ya vencido) no bloquea el cierre de sesión local.
+  try {
+    await http.post('/api/auth/logout')
+  } catch {
+    // ignorar
   }
-  turnos.push(turno)
-  registrarAuditoria({
-    usuario: usuario || estudiante,
-    accion: 'CREAR_TURNO',
-    resultado: 'OK',
-    detalle: `Turno ${codigo} · ${s.nombre}`,
+}
+
+export async function registrarUsuario({ username, password, email, fullName, role }) {
+  const data = await http.post('/api/auth/register', {
+    username,
+    password,
+    email,
+    fullName,
+    role,
   })
-  return clone(turno)
+  return adaptUser(data)
 }
 
-function findTurno(id) {
-  const t = turnos.find((x) => x.id === id)
-  if (!t) throw new Error('Turno no encontrado')
-  return t
+// ---- Usuarios (/api/users) — solo ADMIN ------------------------------------
+export async function listUsuarios({ page = 0, size = 100, sort = 'fullName,asc' } = {}) {
+  const data = await http.get(`/api/users${qs({ page, size, sort })}`)
+  return adaptPage(data, adaptUser)
 }
 
-// Valida y aplica una transición de estado (bloquea "saltos")
-function transicionar(turno, nuevoEstado) {
-  const permitidos = TRANSICIONES[turno.estado] || []
-  if (!permitidos.includes(nuevoEstado)) {
-    throw new Error(
-      `Transición inválida: ${turno.estado} → ${nuevoEstado}`,
-    )
-  }
-  turno.estado = nuevoEstado
+export async function getUsuario(id) {
+  return adaptUser(await http.get(`/api/users/${id}`))
 }
 
-// Operador solicita el siguiente turno de su servicio (lo llama)
-export async function llamarSiguiente({ servicioId, operador }) {
-  await delay()
-  // Regla: un operador solo puede atender un turno a la vez
-  const ocupado = turnos.find(
-    (t) =>
-      t.operadorId === operador.id &&
-      (t.estado === ESTADOS.LLAMADO || t.estado === ESTADOS.EN_ATENCION),
+export async function actualizarUsuario(id, { email, fullName, enabled }) {
+  return adaptUser(await http.put(`/api/users/${id}`, { email, fullName, enabled }))
+}
+
+export async function toggleUsuario(id) {
+  return adaptUser(await http.patch(`/api/users/${id}/toggle-status`))
+}
+
+export async function eliminarUsuario(id) {
+  await http.del(`/api/users/${id}`)
+}
+
+// ---- Servicios (/api/services) ---------------------------------------------
+export async function listServicios({ page = 0, size = 100 } = {}) {
+  const data = await http.get(`/api/services${qs({ page, size })}`)
+  return (data?.content ?? []).map(adaptServicio)
+}
+
+export async function getServicio(id) {
+  return adaptServicio(await http.get(`/api/services/${id}`))
+}
+
+export async function crearServicio({ name, description, prefix, assignedOperatorId = null }) {
+  return adaptServicio(
+    await http.post('/api/services', { name, description, prefix, assignedOperatorId }),
   )
-  if (ocupado) {
-    throw new Error('Ya tienes un turno en curso. Ciérralo o deriva antes de llamar otro.')
-  }
-  const cola = turnos
-    .filter((t) => t.servicioId === servicioId && t.estado === ESTADOS.EN_COLA)
-    .sort((a, b) => {
-      if (a.prioridad !== b.prioridad)
-        return a.prioridad === PRIORIDADES.PREFERENTE ? -1 : 1
-      return new Date(a.createdAt) - new Date(b.createdAt)
-    })
-  if (!cola.length) throw new Error('No hay turnos en cola para este servicio')
-
-  const turno = cola[0]
-  transicionar(turno, ESTADOS.LLAMADO)
-  turno.calledAt = new Date().toISOString()
-  turno.operadorId = operador.id
-  registrarAuditoria({
-    usuario: operador.nombre,
-    accion: 'LLAMAR',
-    resultado: 'OK',
-    detalle: `Turno ${turno.codigo} llamado`,
-  })
-  return clone(turno)
 }
 
-export async function iniciarAtencion({ turnoId, operador }) {
-  await delay()
-  const turno = findTurno(turnoId)
-  transicionar(turno, ESTADOS.EN_ATENCION)
-  turno.startedAt = new Date().toISOString()
-  registrarAuditoria({
-    usuario: operador.nombre,
-    accion: 'INICIAR_ATENCION',
-    resultado: 'OK',
-    detalle: `Turno ${turno.codigo}`,
-  })
-  return clone(turno)
-}
-
-export async function finalizarTurno({ turnoId, observacion, operador }) {
-  await delay()
-  const turno = findTurno(turnoId)
-  transicionar(turno, ESTADOS.FINALIZADO)
-  turno.finishedAt = new Date().toISOString()
-  turno.observacion = observacion || 'Atención completada'
-  registrarAuditoria({
-    usuario: operador.nombre,
-    accion: 'FINALIZAR',
-    resultado: 'OK',
-    detalle: `Turno ${turno.codigo} · ${turno.observacion}`,
-  })
-  return clone(turno)
-}
-
-export async function anularTurno({ turnoId, motivo, usuario }) {
-  await delay()
-  const turno = findTurno(turnoId)
-  transicionar(turno, ESTADOS.ANULADO)
-  turno.finishedAt = new Date().toISOString()
-  turno.observacion = motivo || 'Anulado'
-  registrarAuditoria({
-    usuario: usuario?.nombre || usuario || 'sistema',
-    accion: 'ANULAR',
-    resultado: 'OK',
-    detalle: `Turno ${turno.codigo} · ${turno.observacion}`,
-  })
-  return clone(turno)
-}
-
-// Deriva el turno actual a otro servicio: cierra el actual como DERIVADO
-// y genera un nuevo turno EN_COLA en el servicio destino.
-export async function derivarTurno({ turnoId, servicioDestinoId, motivo, operador }) {
-  await delay()
-  const turno = findTurno(turnoId)
-  transicionar(turno, ESTADOS.DERIVADO)
-  turno.finishedAt = new Date().toISOString()
-  turno.observacion = motivo || 'Derivado'
-
-  contadores[servicioDestinoId] += 1
-  const s = servicioById(servicioDestinoId)
-  const nuevo = {
-    id: nextTurnoId(),
-    codigo: `${s.codigo}-${String(contadores[servicioDestinoId]).padStart(3, '0')}`,
-    servicioId: servicioDestinoId,
-    estudiante: turno.estudiante,
-    prioridad: turno.prioridad,
-    estado: ESTADOS.EN_COLA,
-    createdAt: new Date().toISOString(),
-    calledAt: null,
-    startedAt: null,
-    finishedAt: null,
-    operadorId: null,
-    observacion: null,
-    derivadoDe: turno.codigo,
-  }
-  turnos.push(nuevo)
-  registrarAuditoria({
-    usuario: operador.nombre,
-    accion: 'DERIVAR',
-    resultado: 'OK',
-    detalle: `${turno.codigo} → ${nuevo.codigo} (${s.nombre})`,
-  })
-  return { origen: clone(turno), destino: clone(nuevo) }
-}
-
-// Turnos actualmente llamados/en atención (para la pantalla pública)
-export async function turnosEnPantalla() {
-  await delay(80)
-  const data = turnos
-    .filter((t) => t.estado === ESTADOS.LLAMADO || t.estado === ESTADOS.EN_ATENCION)
-    .sort((a, b) => new Date(b.calledAt) - new Date(a.calledAt))
-  return clone(
-    data.map((t) => {
-      const op = usuarios.find((u) => u.id === t.operadorId)
-      return { ...t, ventanilla: op?.ventanilla || '—' }
-    }),
+export async function actualizarServicio(id, { name, description, prefix, assignedOperatorId }) {
+  return adaptServicio(
+    await http.put(`/api/services/${id}`, { name, description, prefix, assignedOperatorId }),
   )
+}
+
+export async function asignarOperador(id, operatorId) {
+  // operatorId omitido => desasigna
+  return adaptServicio(
+    await http.patch(`/api/services/${id}/assign-operator${qs({ operatorId })}`),
+  )
+}
+
+export async function eliminarServicio(id) {
+  await http.del(`/api/services/${id}`)
+}
+
+// ---- Tickets / Turnos (/api/tickets) ---------------------------------------
+export async function crearTicket({ serviceId, type }) {
+  return adaptTicket(await http.post('/api/tickets', { serviceId, type }))
+}
+
+export async function misTurnos() {
+  const data = await http.get('/api/tickets/my')
+  return (data ?? []).map(adaptTicket)
+}
+
+export async function llamarSiguiente() {
+  // El backend usa el servicio asignado al operador autenticado (sin parámetros).
+  return adaptTicket(await http.post('/api/tickets/call-next'))
+}
+
+export async function iniciarAtencion(id) {
+  return adaptTicket(await http.patch(`/api/tickets/${id}/start`))
+}
+
+export async function finalizarTurno(id) {
+  // Nota: el endpoint /finish no recibe observación (ver notas al backend).
+  return adaptTicket(await http.patch(`/api/tickets/${id}/finish`))
+}
+
+export async function anularTurno(id, observation) {
+  return adaptTicket(await http.patch(`/api/tickets/${id}/cancel`, { observation }))
+}
+
+export async function derivarTurno(id, { targetServiceId, reason }) {
+  return adaptTicket(await http.patch(`/api/tickets/${id}/derive`, { targetServiceId, reason }))
+}
+
+// Estado en tiempo real de la cola de un servicio (para paneles/pantalla).
+export async function colaEstado(serviceId) {
+  const data = await http.get(`/api/tickets/queue/${serviceId}`)
+  return {
+    serviceId: data.serviceId,
+    serviceName: data.serviceName,
+    servicePrefix: data.servicePrefix,
+    current: data.currentTicket ? adaptTicket(data.currentTicket) : null,
+    queueSize: data.queueSize ?? 0,
+    estimatedWaitMinutes: data.estimatedWaitMinutes ?? 0,
+  }
+}
+
+// Historial global de turnos (paginado) — solo ADMIN.
+export async function historialTurnos({ page = 0, size = 20, sort = 'createdAt,desc' } = {}) {
+  const data = await http.get(`/api/tickets/history${qs({ page, size, sort })}`)
+  return adaptPage(data, adaptTicket)
+}
+
+// ---- Auditoría (/api/audit) — solo ADMIN -----------------------------------
+export async function listAuditoria({ page = 0, size = 50, sort = 'createdAt,desc' } = {}) {
+  const data = await http.get(`/api/audit${qs({ page, size, sort })}`)
+  return adaptPage(data, adaptAuditoria)
 }
 
 // ---- Reportes / métricas ----------------------------------------------------
+// El backend aún no expone un endpoint de métricas agregadas, así que se
+// calculan en el cliente a partir del historial global de turnos.
 export async function reportes() {
-  await delay(200)
-  const finalizados = turnos.filter((t) => t.estado === ESTADOS.FINALIZADO)
+  const { items } = await historialTurnos({ page: 0, size: 500, sort: 'createdAt,desc' })
+  const finalizados = items.filter((t) => t.estado === ESTADOS.FINALIZADO)
 
   // Tiempo promedio de espera por servicio (createdAt -> calledAt)
-  const esperaPorServicio = SERVICIOS.map((s) => {
-    const items = finalizados.filter((t) => t.servicioId === s.id && t.calledAt)
-    const prom = items.length
-      ? Math.round(
-          items.reduce((acc, t) => acc + minutosEntre(t.createdAt, t.calledAt), 0) /
-            items.length,
-        )
-      : 0
-    return { servicio: s.nombre, espera: prom, atendidos: items.length }
+  const porServicioMap = new Map()
+  finalizados.forEach((t) => {
+    if (!t.calledAt) return
+    const key = t.servicioNombre
+    const acc = porServicioMap.get(key) || { total: 0, count: 0 }
+    acc.total += minutosEntre(t.createdAt, t.calledAt)
+    acc.count += 1
+    porServicioMap.set(key, acc)
   })
+  const esperaPorServicio = [...porServicioMap.entries()].map(([servicio, v]) => ({
+    servicio,
+    espera: v.count ? Math.round(v.total / v.count) : 0,
+    atendidos: v.count,
+  }))
 
   // Cantidad atendida por operador
-  const porOperador = usuarios
-    .filter((u) => u.rol === 'OPERADOR')
-    .map((op) => ({
-      operador: op.nombre,
-      ventanilla: op.ventanilla,
-      atendidos: finalizados.filter((t) => t.operadorId === op.id).length,
-    }))
+  const porOperadorMap = new Map()
+  finalizados.forEach((t) => {
+    const key = t.operadorNombre || 'Sin operador'
+    porOperadorMap.set(key, (porOperadorMap.get(key) || 0) + 1)
+  })
+  const porOperador = [...porOperadorMap.entries()].map(([operador, atendidos]) => ({
+    operador,
+    atendidos,
+  }))
 
   // Horas pico: turnos creados por hora del día
   const porHora = []
-  for (let h = 8; h <= 19; h++) {
-    const count = turnos.filter((t) => new Date(t.createdAt).getHours() === h).length
+  for (let h = 7; h <= 20; h++) {
+    const count = items.filter((t) => new Date(t.createdAt).getHours() === h).length
     porHora.push({ hora: `${String(h).padStart(2, '0')}:00`, turnos: count })
   }
 
-  const totalHoy = turnos.length
-  const atendidosHoy = finalizados.length
-  const anuladosHoy = turnos.filter((t) => t.estado === ESTADOS.ANULADO).length
-  const enColaAhora = turnos.filter((t) => t.estado === ESTADOS.EN_COLA).length
   const esperaGlobal = finalizados.length
     ? Math.round(
         finalizados.reduce((a, t) => a + minutosEntre(t.createdAt, t.calledAt), 0) /
@@ -322,28 +224,15 @@ export async function reportes() {
     : 0
 
   return {
-    resumen: { totalHoy, atendidosHoy, anuladosHoy, enColaAhora, esperaGlobal },
+    resumen: {
+      totalHoy: items.length,
+      atendidosHoy: finalizados.length,
+      anuladosHoy: items.filter((t) => t.estado === ESTADOS.ANULADO).length,
+      enColaAhora: items.filter((t) => t.estado === ESTADOS.EN_COLA).length,
+      esperaGlobal,
+    },
     esperaPorServicio,
     porOperador,
     porHora,
   }
 }
-
-// ---- Auditoría --------------------------------------------------------------
-export async function listAuditoria() {
-  await delay(120)
-  return clone(auditoria)
-}
-
-// ---- Usuarios ---------------------------------------------------------------
-export async function listUsuarios() {
-  await delay(120)
-  return clone(
-    usuarios.map(({ password: _p, ...u }) => ({
-      ...u,
-      servicioNombre: u.servicioId ? servicioById(u.servicioId)?.nombre : null,
-    })),
-  )
-}
-
-export { ESTADOS_ACTIVOS }

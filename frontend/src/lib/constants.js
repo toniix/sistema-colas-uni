@@ -11,16 +11,8 @@ export const ROL_LABEL = {
   ESTUDIANTE: 'Estudiante',
 }
 
-// Servicios / ventanillas de la universidad
-export const SERVICIOS = [
-  { id: 1, codigo: 'BIB', nombre: 'Biblioteca' },
-  { id: 2, codigo: 'CAJ', nombre: 'Caja' },
-  { id: 3, codigo: 'SEC', nombre: 'Secretaría' },
-  { id: 4, codigo: 'BIE', nombre: 'Bienestar' },
-  { id: 5, codigo: 'MDP', nombre: 'Mesa de Partes' },
-]
-
-export const servicioById = (id) => SERVICIOS.find((s) => s.id === id)
+// Los servicios/ventanillas ahora son dinámicos: se obtienen del backend
+// vía GET /api/services (ver src/api/client.js -> listServicios).
 
 // Estados del turno. El flujo NO permite saltos:
 // CREADO -> EN_COLA -> LLAMADO -> EN_ATENCION -> FINALIZADO
@@ -69,12 +61,13 @@ export const TRANSICIONES = {
 
 export const ESTADOS_ACTIVOS = ['CREADO', 'EN_COLA', 'LLAMADO', 'EN_ATENCION']
 
+// Tipos de ticket del backend (TicketType): NORMAL | PREFERENCIAL
 export const PRIORIDADES = {
   NORMAL: 'NORMAL',
-  PREFERENTE: 'PREFERENTE',
+  PREFERENCIAL: 'PREFERENCIAL',
 }
 
 export const PRIORIDAD_LABEL = {
   NORMAL: 'Normal',
-  PREFERENTE: 'Preferente',
+  PREFERENCIAL: 'Preferente',
 }
