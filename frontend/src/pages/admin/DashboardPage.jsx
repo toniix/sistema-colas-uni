@@ -19,6 +19,7 @@ import Badge from '../../components/ui/Badge'
 import EmptyState from '../../components/EmptyState'
 import { SkeletonCard, SkeletonList } from '../../components/SkeletonCard'
 import SetupWizardModal from '../../components/admin/SetupWizardModal'
+import { useQueueSse } from '../../hooks/useQueueSse'
 
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState(null)
@@ -58,9 +59,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     cargarDatos().finally(() => setLoading(false))
-    const iv = setInterval(cargarDatos, 5000) // Live polling
-    return () => clearInterval(iv)
   }, [cargarDatos])
+
+  // Suscribir el dashboard a los eventos SSE globales para refrescar cuando haya actividad
+  useQueueSse(null, () => {
+    cargarDatos()
+  }, { isPublic: true, isGlobal: true })
 
   const prettyAccion = (a = '') =>
     a
