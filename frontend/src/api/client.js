@@ -53,12 +53,13 @@ export async function logout() {
 }
 
 export async function registrarUsuario({ username, password, email, fullName, role }) {
+  const backendRole = role === 'OPERADOR' ? 'OPERATOR' : role === 'ESTUDIANTE' ? 'STUDENT' : role;
   const data = await http.post('/api/auth/register', {
     username,
     password,
     email,
     fullName,
-    role,
+    role: backendRole,
   })
   return adaptUser(data)
 }
@@ -120,7 +121,8 @@ export async function eliminarServicio(id) {
 
 // ---- Tickets / Turnos (/api/tickets) ---------------------------------------
 export async function crearTicket({ serviceId, type }) {
-  return adaptTicket(await http.post('/api/tickets', { serviceId, type }))
+  const priority = type === 'PREFERENCIAL' ? 'PREFERENTE' : 'NORMAL'
+  return adaptTicket(await http.post('/api/tickets', { serviceId, priority }))
 }
 
 export async function misTurnos() {

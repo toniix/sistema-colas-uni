@@ -1,6 +1,24 @@
-// Adaptadores: convierten los DTO del backend (inglés) al modelo interno que
-// ya usan los componentes del frontend (español). Centralizarlos aquí permite
-// que si el backend cambia un nombre de campo, solo se toque este archivo.
+// Mapas de traducción de Backend (inglés) a Frontend (español)
+const ROLE_MAP = {
+  ADMIN: 'ADMIN',
+  OPERATOR: 'OPERADOR',
+  STUDENT: 'ESTUDIANTE',
+}
+
+const STATUS_MAP = {
+  CREATED: 'CREADO',
+  IN_QUEUE: 'EN_COLA',
+  CALLED: 'LLAMADO',
+  IN_ATTENTION: 'EN_ATENCION',
+  FINISHED: 'FINALIZADO',
+  CANCELLED: 'ANULADO',
+  DERIVED: 'DERIVADO',
+}
+
+const PRIORITY_MAP = {
+  NORMAL: 'NORMAL',
+  PREFERENTE: 'PREFERENCIAL',
+}
 
 export const adaptUser = (u) =>
   u
@@ -9,7 +27,7 @@ export const adaptUser = (u) =>
         username: u.username,
         email: u.email,
         nombre: u.fullName,
-        rol: u.role, // ADMIN | OPERADOR | ESTUDIANTE
+        rol: ROLE_MAP[u.role] || u.role, // Traduce a ADMIN | OPERADOR | ESTUDIANTE
         enabled: u.enabled,
         createdAt: u.createdAt,
         updatedAt: u.updatedAt,
@@ -36,8 +54,8 @@ export const adaptTicket = (t) =>
     ? {
         id: t.id,
         codigo: t.ticketCode,
-        estado: t.status, // CREADO | EN_COLA | LLAMADO | EN_ATENCION | ...
-        prioridad: t.type, // NORMAL | PREFERENCIAL
+        estado: STATUS_MAP[t.status] || t.status, // Traduce los estados a español
+        prioridad: PRIORITY_MAP[t.priority] || t.priority, // Traduce a NORMAL | PREFERENCIAL
         posicion: t.position ?? null,
         estudiante: t.student?.fullName ?? '—',
         estudianteId: t.student?.id ?? null,
@@ -58,13 +76,14 @@ export const adaptTicket = (t) =>
 
 export const adaptAuditoria = (a) => ({
   id: a.id,
-  accion: a.action, // p. ej. TICKET_STATUS_CHANGED
+  accion: a.action, // p. ej. TICKET_STATUS_CHANGED o CALL
   entidad: a.entityType,
   entidadId: a.entityId,
   usuario: a.performedBy?.fullName ?? a.performedBy?.username ?? '—',
-  usuarioRol: a.performedBy?.role ?? null,
+  usuarioRol: ROLE_MAP[a.performedBy?.role] || a.performedBy?.role || null, // Traduce rol en auditoría
   valorAnterior: a.oldValue ?? null,
   valorNuevo: a.newValue ?? null,
   detalle: a.description ?? '',
   timestamp: a.createdAt,
 })
+
