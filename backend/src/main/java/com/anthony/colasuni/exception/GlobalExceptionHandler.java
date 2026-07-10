@@ -3,6 +3,7 @@ package com.anthony.colasuni.exception;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -75,6 +76,16 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorDetails> handleUnauthorized(
             UnauthorizedOperationException ex, HttpServletRequest request) {
         return buildError(HttpStatus.FORBIDDEN, ex.getMessage(), request);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Seguridad: credenciales inválidas → 401
+    // ──────────────────────────────────────────────────────────────
+
+    @ExceptionHandler(BadCredentialsException.class)
+    public ResponseEntity<ErrorDetails> handleBadCredentials(
+            BadCredentialsException ex, HttpServletRequest request) {
+        return buildError(HttpStatus.UNAUTHORIZED, "Credenciales incorrectas. Verifica tu correo y contraseña.", request);
     }
 
     // ──────────────────────────────────────────────────────────────
