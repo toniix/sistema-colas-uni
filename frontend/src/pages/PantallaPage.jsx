@@ -5,9 +5,11 @@ import { ESTADOS } from '../lib/constants'
 import { fmtHora } from '../lib/format'
 import Badge from '../components/ui/Badge'
 import Card from '../components/ui/Card'
+import { useQueueSse } from '../hooks/useQueueSse'
+import { adaptTicket } from '../api/adapters'
+import { useMemo } from 'react'
 
 export default function PantallaPage() {
-  const [colas, setColas] = useState([])
   const [error, setError] = useState('')
   const [currentTime, setCurrentTime] = useState('')
   const [soundEnabled, setSoundEnabled] = useState(false)
@@ -49,31 +51,50 @@ export default function PantallaPage() {
     }
   }, [soundEnabled])
 
-  const cargar = useCallback(async () => {
-    try {
-      const servicios = await api.listServicios()
-      const activos = servicios.filter((s) => s.activo)
-      const estados = await Promise.all(activos.map((s) => api.colaEstado(s.id)))
-      
-      // Solo servicios que tienen un turno llamado o en atencion
-      const llamados = estados.filter((q) => q.current)
-      setColas(llamados)
-      setError('')
+  const [serviciosActivos, setServiciosActivos] = useState([])
+  const [colaPorServicio, setColaPorServicio] = useState({})
 
-      // Sound chime trigger
-      if (llamados.length > 0) {
-        const primaryCode = llamados[0].current.codigo
-        if (primaryCode !== lastCalledCode) {
-          if (lastCalledCode !== '') {
-            playChime()
-          }
-          setLastCalledCode(primaryCode)
-        }
+  // Cargar lista de servicios activos una sola vez al montar
+  useEffect(() => {
+    api.listServicios()
+      .then((servs) => {
+        setServiciosActivos(servs.filter((s) => s.activo))
+      })
+      .catch((e) => setError(e.message))
+  }, [])
+
+  // Derivar la lista de colas activas ordenando los llamados más recientes primero
+  const colas = useMemo(() => {
+    const list = Object.values(colaPorServicio)
+      .filter((q) => q && q.current)
+      .sort((a, b) => (b.current.id || 0) - (a.current.id || 0))
+    
+    if (list.length > 0) {
+      const primaryCode = list[0].current.codigo
+      if (primaryCode !== lastCalledCode) {
+        if (lastCalledCode !== '') playChime()
+        setLastCalledCode(primaryCode)
       }
-    } catch (e) {
-      setError(e.message)
     }
-  }, [lastCalledCode, playChime])
+    return list
+  }, [colaPorServicio, lastCalledCode, playChime])
+
+  // Suscribirse de forma global al stream SSE público de todas las colas (1 sola conexión HTTP)
+  useQueueSse(null, (eventType, payload) => {
+    if (payload) {
+      setColaPorServicio((prev) => ({
+        ...prev,
+        [payload.serviceId]: {
+          serviceId: payload.serviceId,
+          serviceName: payload.serviceName,
+          servicePrefix: payload.servicePrefix,
+          queueSize: payload.queueSize,
+          estimatedWaitMinutes: payload.estimatedWaitMinutes,
+          current: payload.currentTicket ? adaptTicket(payload.currentTicket) : null,
+        },
+      }))
+    }
+  }, { isPublic: true, isGlobal: true })
 
   // Timer clock for TV
   useEffect(() => {
@@ -85,12 +106,6 @@ export default function PantallaPage() {
     const tIv = setInterval(updateTime, 1000)
     return () => clearInterval(tIv)
   }, [])
-
-  useEffect(() => {
-    cargar()
-    const iv = setInterval(cargar, 3000)
-    return () => clearInterval(iv)
-  }, [cargar])
 
   // Fullscreen controller
   const toggleFullscreen = () => {

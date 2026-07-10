@@ -64,6 +64,31 @@ function refreshToken() {
   return refreshPromise
 }
 
+/**
+ * Comprueba si el token actual de acceso ha expirado o está a punto de hacerlo (próximos 10 segundos).
+ * Si ha expirado, ejecuta el refresco y retorna el nuevo accessToken.
+ * De lo contrario, retorna el token existente.
+ */
+export async function garantizarTokenValido() {
+  const auth = getAuth()
+  if (!auth?.accessToken) return null
+
+  try {
+    // Decodificar payload JWT (segundo segmento separado por puntos)
+    const payload = JSON.parse(atob(auth.accessToken.split('.')[1]))
+    const exp = payload.exp * 1000 // Convertir a milisegundos
+    
+    // Si ya expiró o vencerá en los próximos 10 segundos, refrescar
+    if (Date.now() + 10000 >= exp) {
+      return await refreshToken()
+    }
+  } catch (e) {
+    // Si no se puede decodificar, retornar el token actual
+  }
+  return auth.accessToken
+}
+
+
 async function rawRequest(path, { method = 'GET', body, auth = true, token } = {}) {
   const headers = {}
   if (body !== undefined) headers['Content-Type'] = 'application/json'

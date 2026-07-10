@@ -22,6 +22,8 @@ import { Select, Textarea } from '../components/ui/Input'
 import LiveTimer from '../components/LiveTimer'
 import { useNotification } from '../hooks/useNotification'
 import EmptyState from '../components/EmptyState'
+import { useQueueSse } from '../hooks/useQueueSse'
+import { adaptTicket } from '../api/adapters'
 
 export default function OperadorPage() {
   const { user } = useAuth()
@@ -72,21 +74,59 @@ export default function OperadorPage() {
   )
 
   useEffect(() => {
-    let iv
-    ;(async () => {
+    let active = true;
+    const inicializar = async () => {
       try {
-        const mio = await cargarServicios()
-        await refrescarCola(mio)
+        const servs = await api.listServicios()
+        if (!active) return
+        setServicios(servs)
+        const mio = servs.find((s) => s.operadorId === user.id) || null
+        setMiServicio(mio)
+        
+        if (mio) {
+          const q = await api.colaEstado(mio.id)
+          if (!active) return
+          setQueue(q)
+          const c = q.current
+          if (c && c.operadorId === user.id && (c.estado === ESTADOS.LLAMADO || c.estado === ESTADOS.EN_ATENCION)) {
+            setActivo(c)
+          }
+        }
         setError('')
-        iv = setInterval(() => refrescarCola(mio).catch(() => {}), 4000)
       } catch (e) {
-        setError(e.message)
+        if (active) setError(e.message)
       } finally {
-        setReady(true)
+        if (active) setReady(true)
       }
-    })()
-    return () => clearInterval(iv)
-  }, [cargarServicios, refrescarCola])
+    }
+    
+    inicializar()
+    return () => {
+      active = false
+    }
+  }, [user.id])
+
+  // Escuchar actualizaciones de la cola del operador en tiempo real mediante SSE
+  useQueueSse(miServicio?.id, (eventType, payload) => {
+    if (payload) {
+      setQueue({
+        serviceId: payload.serviceId,
+        serviceName: payload.serviceName,
+        servicePrefix: payload.servicePrefix,
+        queueSize: payload.queueSize,
+        estimatedWaitMinutes: payload.estimatedWaitMinutes,
+        current: payload.currentTicket ? adaptTicket(payload.currentTicket) : null,
+      })
+      
+      // Actualizar el turno activo local del operador si coincide
+      const c = payload.currentTicket ? adaptTicket(payload.currentTicket) : null
+      if (c && c.operadorId === user.id && (c.estado === ESTADOS.LLAMADO || c.estado === ESTADOS.EN_ATENCION)) {
+        setActivo(c)
+      } else if (!c || c.operadorId !== user.id) {
+        setActivo(null)
+      }
+    }
+  })
 
   async function accion(fn, okMsg, onCompletado) {
     setBusy(true)

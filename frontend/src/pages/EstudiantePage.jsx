@@ -20,6 +20,7 @@ import TicketProgress from '../components/TicketProgress'
 import { useNotification } from '../hooks/useNotification'
 import EmptyState from '../components/EmptyState'
 import { SkeletonList } from '../components/SkeletonCard'
+import { useQueueSse } from '../hooks/useQueueSse'
 
 export default function EstudiantePage() {
   const { showNotification } = useNotification()
@@ -56,9 +57,13 @@ export default function EstudiantePage() {
 
   useEffect(() => {
     cargar().finally(() => setLoading(false))
-    const iv = setInterval(cargar, 5000) // Live polling
-    return () => clearInterval(iv)
   }, [cargar])
+
+  // Escuchar actualizaciones de cola en tiempo real mediante SSE
+  useQueueSse(servicioId, () => {
+    // Recargar turnos del estudiante ante cualquier cambio en el servicio seleccionado
+    api.misTurnos().then(setMisTurnos)
+  })
 
   // Trigger web notification when called
   useEffect(() => {
