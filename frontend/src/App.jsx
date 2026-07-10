@@ -4,10 +4,12 @@ import RequireAuth from './auth/RequireAuth'
 import { rutaInicioPorRol } from './lib/rutas'
 import { ROLES } from './lib/constants'
 import AppLayout from './layout/AppLayout'
+import PublicLayout from './layout/PublicLayout'
 import LoginPage from './pages/LoginPage'
 import EstudiantePage from './pages/EstudiantePage'
 import OperadorPage from './pages/OperadorPage'
 import PantallaPage from './pages/PantallaPage'
+import DashboardPage from './pages/admin/DashboardPage'
 import ReportesPage from './pages/admin/ReportesPage'
 import ServiciosPage from './pages/admin/ServiciosPage'
 import UsuariosPage from './pages/admin/UsuariosPage'
@@ -19,6 +21,11 @@ export default function App() {
 
   return (
     <Routes>
+      {/* Ruta pública para pantalla TV sin login */}
+      <Route element={<PublicLayout />}>
+        <Route path="/display" element={<PantallaPage />} />
+      </Route>
+
       <Route
         path="/login"
         element={
@@ -46,6 +53,14 @@ export default function App() {
           element={
             <RequireAuth roles={[ROLES.OPERADOR]}>
               <OperadorPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/dashboard"
+          element={
+            <RequireAuth roles={[ROLES.ADMIN]}>
+              <DashboardPage />
             </RequireAuth>
           }
         />
@@ -81,8 +96,9 @@ export default function App() {
             </RequireAuth>
           }
         />
-        {/* Pantalla pública disponible para cualquier usuario autenticado */}
-        <Route path="/pantalla" element={<PantallaPage />} />
+        
+        {/* Redirección compatible de pantalla */}
+        <Route path="/pantalla" element={<Navigate to="/display" replace />} />
       </Route>
 
       <Route

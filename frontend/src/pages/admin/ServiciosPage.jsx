@@ -1,43 +1,38 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  ActionIcon,
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Center,
-  Group,
-  Loader,
-  Menu,
-  Modal,
-  Select,
-  SimpleGrid,
-  Stack,
-  Text,
-  TextInput,
-  ThemeIcon,
-  Title,
-} from '@mantine/core'
-import {
   IconAlertTriangle,
   IconBuildingBank,
   IconDotsVertical,
   IconPlus,
   IconTrash,
   IconUserCog,
+  IconEdit,
 } from '@tabler/icons-react'
-import { notifications } from '@mantine/notifications'
-import { useDisclosure } from '@mantine/hooks'
-import { modals } from '@mantine/modals'
 import * as api from '../../api/client'
 import { ROLES } from '../../lib/constants'
 import PageHeader from '../../components/PageHeader'
+import Card from '../../components/ui/Card'
+import Button from '../../components/ui/Button'
+import Badge from '../../components/ui/Badge'
+import Dropdown, { DropdownItem } from '../../components/ui/Dropdown'
+import Modal from '../../components/ui/Modal'
+import { TextInput, Select } from '../../components/ui/Input'
+import { useNotification } from '../../hooks/useNotification'
+import EmptyState from '../../components/EmptyState'
+import { SkeletonCard } from '../../components/SkeletonCard'
 
 export default function ServiciosPage() {
+  const { showNotification } = useNotification()
   const [servicios, setServicios] = useState(null)
   const [operadores, setOperadores] = useState([])
   const [error, setError] = useState('')
-  const [nuevo, nuevoH] = useDisclosure(false)
+
+  // Modales
+  const [nuevoOpen, setNuevoOpen] = useState(false)
+  const [editarOpen, setEditarOpen] = useState(false)
+  const [servicioAEditar, setServicioAEditar] = useState(null)
+  const [eliminarConfirmOpen, setEliminarConfirmOpen] = useState(false)
+  const [servicioAEliminar, setServicioAEliminar] = useState(null)
 
   const cargar = useCallback(async () => {
     try {
@@ -45,7 +40,7 @@ export default function ServiciosPage() {
         api.listServicios(),
         api.listUsuarios({ size: 200 }),
       ])
-      // Cola por servicio (para contar en espera / en atención)
+      
       const conCola = await Promise.all(
         servs.map(async (s) => {
           try {
@@ -65,8 +60,6 @@ export default function ServiciosPage() {
   }, [])
 
   useEffect(() => {
-    // cargar() hace setState de forma asíncrona (tras await), no en el cuerpo del efecto
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     cargar()
     const iv = setInterval(cargar, 6000)
     return () => clearInterval(iv)
@@ -75,161 +68,190 @@ export default function ServiciosPage() {
   async function asignar(servicioId, operatorId) {
     try {
       await api.asignarOperador(servicioId, operatorId ? Number(operatorId) : undefined)
-      notifications.show({ message: 'Operador actualizado', color: 'teal' })
+      showNotification({ message: 'Operador asignado con éxito', color: 'green' })
       await cargar()
     } catch (e) {
-      notifications.show({ title: 'Error', message: e.message, color: 'red' })
+      showNotification({ title: 'Error', message: e.message, color: 'red' })
     }
   }
 
-  function confirmarEliminar(s) {
-    modals.openConfirmModal({
-      title: 'Eliminar servicio',
-      children: (
-        <Text size="sm">
-          ¿Seguro que deseas eliminar <b>{s.nombre}</b>? Esta acción no se puede deshacer.
-        </Text>
-      ),
-      labels: { confirm: 'Eliminar', cancel: 'Cancelar' },
-      confirmProps: { color: 'red' },
-      onConfirm: async () => {
-        try {
-          await api.eliminarServicio(s.id)
-          notifications.show({ message: `Servicio ${s.nombre} eliminado`, color: 'gray' })
-          await cargar()
-        } catch (e) {
-          notifications.show({ title: 'Error', message: e.message, color: 'red' })
-        }
-      },
-    })
+  async function handleEliminar() {
+    if (!servicioAEliminar) return
+    try {
+      await api.eliminarServicio(servicioAEliminar.id)
+      showNotification({ message: `Servicio ${servicioAEliminar.nombre} eliminado`, color: 'gray' })
+      setEliminarConfirmOpen(false)
+      setServicioAEliminar(null)
+      await cargar()
+    } catch (e) {
+      showNotification({ title: 'Error', message: e.message, color: 'red' })
+    }
   }
 
-  if (error) {
+  const openEditarModal = (s) => {
+    setServicioAEditar(s)
+    setEditarOpen(true)
+  }
+
+  const openEliminarModal = (s) => {
+    setServicioAEliminar(s)
+    setEliminarConfirmOpen(true)
+  }
+
+  if (error && !servicios) {
     return (
-      <>
+      <div className="flex flex-col gap-6">
         <PageHeader title="Servicios / ventanillas" />
-        <Alert color="red" variant="light" icon={<IconAlertTriangle size={18} />} title="Error de conexión">
-          {error}
-        </Alert>
-      </>
-    )
-  }
-
-  if (!servicios) {
-    return (
-      <Center h={300}>
-        <Loader />
-      </Center>
+        <div className="flex items-start gap-3 bg-rose-50 border border-rose-100 rounded-2xl p-4 text-rose-800 text-sm">
+          <IconAlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-bold">Error de conexión:</span> {error}
+          </div>
+        </div>
+      </div>
     )
   }
 
   return (
-    <>
+    <div className="flex flex-col gap-6">
       <PageHeader
         title="Servicios / ventanillas"
-        subtitle="Puntos de atención, operador asignado y cola en vivo"
+        subtitle="Puntos de atención, operador asignado y colas en vivo."
         actions={
-          <Button leftSection={<IconPlus size={18} />} onClick={nuevoH.open}>
+          <Button leftSection={<IconPlus size={18} />} onClick={() => setNuevoOpen(true)}>
             Nuevo servicio
           </Button>
         }
       />
 
-      {servicios.length === 0 ? (
-        <Alert variant="light" color="gray">
-          No hay servicios registrados. Crea el primero con “Nuevo servicio”.
-        </Alert>
+      {servicios === null ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <SkeletonCard />
+          <SkeletonCard />
+          <SkeletonCard />
+        </div>
+      ) : servicios.length === 0 ? (
+        <EmptyState
+          icon={IconBuildingBank}
+          title="Sin servicios registrados"
+          description="Aún no hay servicios. Haz clic en 'Nuevo servicio' para crear el primero."
+        />
       ) : (
-        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="lg">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 animate-slide-in">
           {servicios.map((s) => (
-            <Card key={s.id} padding="lg">
-              <Group justify="space-between" mb="md" wrap="nowrap">
-                <Group gap="sm" wrap="nowrap">
-                  <ThemeIcon variant="light" color="teal" size={40} radius="md">
-                    <IconBuildingBank size={22} stroke={1.6} />
-                  </ThemeIcon>
-                  <div>
-                    <Group gap={6}>
-                      <Text fw={600}>{s.nombre}</Text>
-                      {!s.activo && (
-                        <Badge size="xs" color="gray" variant="light">
-                          inactivo
-                        </Badge>
-                      )}
-                    </Group>
-                    <Text size="xs" c="dimmed" ff="monospace">
-                      {s.codigo}
-                    </Text>
+            <Card key={s.id} padding="lg" className="border-slate-200 flex flex-col justify-between gap-4">
+              <div>
+                <div className="flex justify-between items-start gap-4 mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl shrink-0">
+                      <IconBuildingBank className="w-5.5 h-5.5" stroke={1.8} />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-bold text-sm text-slate-800 truncate leading-snug">{s.nombre}</h3>
+                      <span className="font-mono text-[10px] font-black text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
+                        {s.codigo}
+                      </span>
+                    </div>
                   </div>
-                </Group>
-                <Menu position="bottom-end" shadow="md">
-                  <Menu.Target>
-                    <ActionIcon variant="subtle" color="gray">
-                      <IconDotsVertical size={18} />
-                    </ActionIcon>
-                  </Menu.Target>
-                  <Menu.Dropdown>
-                    <Menu.Item
-                      color="red"
-                      leftSection={<IconTrash size={16} />}
-                      onClick={() => confirmarEliminar(s)}
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {!s.activo && <Badge color="slate" size="sm">Inactivo</Badge>}
+                    <Dropdown
+                      trigger={
+                        <div className="p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-lg transition-colors">
+                          <IconDotsVertical className="w-5 h-5" />
+                        </div>
+                      }
                     >
-                      Eliminar
-                    </Menu.Item>
-                  </Menu.Dropdown>
-                </Menu>
-              </Group>
+                      <DropdownItem onClick={() => openEditarModal(s)} leftSection={<IconEdit className="w-4 h-4" />}>
+                        Editar servicio
+                      </DropdownItem>
+                      <DropdownItem onClick={() => openEliminarModal(s)} color="danger" leftSection={<IconTrash className="w-4 h-4" />}>
+                        Eliminar
+                      </DropdownItem>
+                    </Dropdown>
+                  </div>
+                </div>
 
-              {s.descripcion && (
-                <Text size="sm" c="dimmed" mb="md" lineClamp={2}>
-                  {s.descripcion}
-                </Text>
-              )}
+                {s.descripcion && (
+                  <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed mb-4 pl-1">
+                    {s.descripcion}
+                  </p>
+                )}
 
-              <Group grow mb="md">
-                <Metric label="En cola" value={s.enCola} color="blue" />
-                <Metric label="Atendiendo" value={s.current ? 1 : 0} color="teal" />
-              </Group>
+                <div className="grid grid-cols-2 gap-3 mb-4">
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-center">
+                    <span className="text-xl font-black text-indigo-600 block leading-none">{s.enCola}</span>
+                    <span className="text-[9px] font-bold text-slate-400 uppercase mt-1 block">En Cola</span>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-center flex flex-col justify-center">
+                    {s.current ? (
+                      <>
+                        <span className="font-mono font-bold text-xs text-emerald-600 truncate block leading-none">
+                          {s.current.codigo}
+                        </span>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase mt-1 block">Atendiendo</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-[10px] font-bold text-slate-400 block leading-none">Libre</span>
+                        <span className="text-[9px] font-bold text-slate-400 uppercase mt-1 block">Atendiendo</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
 
-              <Select
-                label="Operador asignado"
-                placeholder="Sin asignar"
-                leftSection={<IconUserCog size={16} />}
-                data={operadores.map((o) => ({ value: String(o.id), label: o.nombre }))}
-                value={s.operadorId ? String(s.operadorId) : null}
-                onChange={(v) => asignar(s.id, v)}
-                clearable
-                comboboxProps={{ withinPortal: true }}
-              />
+              <div className="border-t border-slate-100 pt-4">
+                <Select
+                  label="Operador Asignado"
+                  placeholder="Sin asignar"
+                  data={operadores.map((o) => ({ value: String(o.id), label: o.nombre }))}
+                  value={s.operadorId ? String(s.operadorId) : null}
+                  onChange={(v) => asignar(s.id, v)}
+                  allowDeselect={true}
+                />
+              </div>
             </Card>
           ))}
-        </SimpleGrid>
+        </div>
       )}
 
-      <NuevoServicioModal opened={nuevo} onClose={nuevoH.close} onCreated={cargar} />
-    </>
-  )
-}
+      {/* Modal Nuevo Servicio */}
+      <NuevoServicioModal opened={nuevoOpen} onClose={() => setNuevoOpen(false)} onCreated={cargar} />
 
-function Metric({ label, value, color }) {
-  return (
-    <Card padding="sm" bg="var(--mantine-color-gray-0)">
-      <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-        {label}
-      </Text>
-      <Group gap="xs" align="baseline">
-        <Text fw={700} fz={24}>
-          {value}
-        </Text>
-        <Badge variant="dot" color={color} size="sm">
-          {value === 0 ? 'libre' : 'activo'}
-        </Badge>
-      </Group>
-    </Card>
+      {/* Modal Editar Servicio */}
+      <EditarServicioModal
+        opened={editarOpen}
+        onClose={() => {
+          setEditarOpen(false)
+          setServicioAEditar(null)
+        }}
+        servicio={servicioAEditar}
+        onUpdated={cargar}
+      />
+
+      {/* Modal Confirmar Eliminar */}
+      <Modal opened={eliminarConfirmOpen} onClose={() => setEliminarConfirmOpen(false)} title="Eliminar servicio">
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-slate-500 leading-relaxed">
+            ¿Estás seguro que deseas eliminar el servicio <b className="text-slate-800">{servicioAEliminar?.nombre}</b>? Esta acción no se puede deshacer y cancelará las colas vigentes.
+          </p>
+          <div className="flex justify-end gap-2.5 mt-2">
+            <Button variant="ghost" onClick={() => setEliminarConfirmOpen(false)}>
+              Cancelar
+            </Button>
+            <Button variant="danger" color="red" onClick={handleEliminar}>
+              Eliminar servicio
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </div>
   )
 }
 
 function NuevoServicioModal({ opened, onClose, onCreated }) {
+  const { showNotification } = useNotification()
   const [name, setName] = useState('')
   const [prefix, setPrefix] = useState('')
   const [description, setDescription] = useState('')
@@ -239,53 +261,123 @@ function NuevoServicioModal({ opened, onClose, onCreated }) {
     setSaving(true)
     try {
       await api.crearServicio({ name, description, prefix: prefix.toUpperCase() })
-      notifications.show({ message: `Servicio ${name} creado`, color: 'teal' })
+      showNotification({ message: `Servicio ${name} creado con éxito`, color: 'green' })
       setName('')
       setPrefix('')
       setDescription('')
       onClose()
       onCreated()
     } catch (e) {
-      notifications.show({ title: 'No se pudo crear', message: e.message, color: 'red' })
+      showNotification({ title: 'No se pudo crear', message: e.message, color: 'red' })
     } finally {
       setSaving(false)
     }
   }
 
   return (
-    <Modal opened={opened} onClose={onClose} title="Nuevo servicio" centered>
-      <Stack gap="md">
+    <Modal opened={opened} onClose={onClose} title="Nuevo servicio" size="md">
+      <div className="flex flex-col gap-4">
         <TextInput
-          label="Nombre"
-          placeholder="Ej. Secretaría Académica"
+          label="Nombre del servicio"
+          placeholder="Ej: Secretaría Académica"
           value={name}
-          onChange={(e) => setName(e.currentTarget.value)}
+          onChange={(e) => setName(e.target.value)}
           required
         />
         <TextInput
-          label="Prefijo"
-          placeholder="Ej. SEC"
-          description="Prefijo del código de turno (SEC-1, SEC-2, …)"
+          label="Prefijo de ticket"
+          placeholder="Ej: SEC"
           value={prefix}
-          onChange={(e) => setPrefix(e.currentTarget.value)}
+          onChange={(e) => setPrefix(e.target.value)}
           maxLength={5}
           required
         />
         <TextInput
           label="Descripción"
-          placeholder="Certificados y constancias de estudio"
+          placeholder="Ej: Certificados de estudio y constancias."
           value={description}
-          onChange={(e) => setDescription(e.currentTarget.value)}
+          onChange={(e) => setDescription(e.target.value)}
         />
-        <Group justify="flex-end" mt="xs">
-          <Button variant="default" onClick={onClose}>
+        <div className="flex justify-end gap-2.5 mt-2">
+          <Button variant="ghost" onClick={onClose}>
             Cancelar
           </Button>
           <Button onClick={guardar} loading={saving} disabled={!name || !prefix}>
             Crear servicio
           </Button>
-        </Group>
-      </Stack>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function EditarServicioModal({ opened, onClose, servicio, onUpdated }) {
+  const { showNotification } = useNotification()
+  const [name, setName] = useState('')
+  const [prefix, setPrefix] = useState('')
+  const [description, setDescription] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (servicio) {
+      setName(servicio.nombre || '')
+      setPrefix(servicio.codigo || '')
+      setDescription(servicio.descripcion || '')
+    }
+  }, [servicio])
+
+  async function guardar() {
+    setSaving(true)
+    try {
+      await api.actualizarServicio(servicio.id, {
+        name,
+        description,
+        prefix: prefix.toUpperCase(),
+        assignedOperatorId: servicio.operadorId,
+      })
+      showNotification({ message: `Servicio ${name} actualizado`, color: 'green' })
+      onClose()
+      onUpdated()
+    } catch (e) {
+      showNotification({ title: 'No se pudo guardar', message: e.message, color: 'red' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal opened={opened} onClose={onClose} title="Editar servicio" size="md">
+      <div className="flex flex-col gap-4">
+        <TextInput
+          label="Nombre del servicio"
+          placeholder="Ej: Secretaría Académica"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+        <TextInput
+          label="Prefijo de ticket"
+          placeholder="Ej: SEC"
+          value={prefix}
+          onChange={(e) => setPrefix(e.target.value)}
+          maxLength={5}
+          required
+        />
+        <TextInput
+          label="Descripción"
+          placeholder="Ej: Certificados de estudio y constancias."
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+        />
+        <div className="flex justify-end gap-2.5 mt-2">
+          <Button variant="ghost" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button onClick={guardar} loading={saving} disabled={!name || !prefix}>
+            Guardar cambios
+          </Button>
+        </div>
+      </div>
     </Modal>
   )
 }

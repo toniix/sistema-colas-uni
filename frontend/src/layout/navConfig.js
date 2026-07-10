@@ -13,17 +13,18 @@ import { ROLES } from '../lib/constants'
 export const NAV = {
   [ROLES.ESTUDIANTE]: [
     { to: '/estudiante', label: 'Pedir turno', icon: IconTicket },
-    { to: '/pantalla', label: 'Pantalla de turnos', icon: IconDeviceDesktop },
+    { to: '/display', label: 'Pantalla de turnos', icon: IconDeviceDesktop },
   ],
   [ROLES.OPERADOR]: [
     { to: '/operador', label: 'Atención', icon: IconClipboardList },
-    { to: '/pantalla', label: 'Pantalla de turnos', icon: IconDeviceDesktop },
+    { to: '/display', label: 'Pantalla de turnos', icon: IconDeviceDesktop },
   ],
   [ROLES.ADMIN]: [
-    { to: '/admin/reportes', label: 'Reportes', icon: IconChartBar },
-    { to: '/admin/servicios', label: 'Servicios', icon: IconLayoutGrid },
-    { to: '/admin/usuarios', label: 'Usuarios', icon: IconUsers },
-    { to: '/admin/auditoria', label: 'Auditoría', icon: IconHistory },
-    { to: '/pantalla', label: 'Pantalla de turnos', icon: IconDeviceDesktop },
+    { to: '/admin/dashboard', label: 'Dashboard', icon: IconChartBar },
+    { to: '/admin/reportes', label: 'Reportes y Métricas', icon: IconHistory },
+    { to: '/admin/servicios', label: 'Servicios / Ventanillas', icon: IconLayoutGrid },
+    { to: '/admin/usuarios', label: 'Usuarios / Cuentas', icon: IconUsers },
+    { to: '/admin/auditoria', label: 'Bitácora Auditoría', icon: IconClipboardList },
+    { to: '/display', label: 'Pantalla de turnos', icon: IconDeviceDesktop },
   ],
 }

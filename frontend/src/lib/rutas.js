@@ -4,7 +4,7 @@ import { ROLES } from './constants'
 export function rutaInicioPorRol(rol) {
   switch (rol) {
     case ROLES.ADMIN:
-      return '/admin/reportes'
+      return '/admin/dashboard'
     case ROLES.OPERADOR:
       return '/operador'
     case ROLES.ESTUDIANTE:

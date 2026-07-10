@@ -1,19 +1,23 @@
-import { Group, Stack, Text, Title } from '@mantine/core'
+import React from 'react'
 
 export default function PageHeader({ title, subtitle, actions }) {
   return (
-    <Group justify="space-between" align="flex-end" mb="lg" wrap="wrap">
-      <Stack gap={2}>
-        <Title order={2} fz={26}>
+    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4 mb-6">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-extrabold text-slate-800 tracking-tight">
           {title}
-        </Title>
+        </h1>
         {subtitle && (
-          <Text c="dimmed" size="sm">
+          <p className="text-sm font-medium text-slate-400">
             {subtitle}
-          </Text>
+          </p>
         )}
-      </Stack>
-      {actions}
-    </Group>
+      </div>
+      {actions && (
+        <div className="flex items-center gap-2 w-full sm:w-auto self-stretch sm:self-auto justify-end">
+          {actions}
+        </div>
+      )}
+    </div>
   )
 }

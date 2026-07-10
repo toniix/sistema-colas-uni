@@ -1,40 +1,31 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
-  Alert,
-  Badge,
-  Button,
-  Card,
-  Grid,
-  Group,
-  Modal,
-  Select,
-  Stack,
-  Text,
-  Textarea,
-  ThemeIcon,
-  Title,
-} from '@mantine/core'
-import {
   IconAlertTriangle,
   IconArrowRight,
   IconBellRinging,
   IconCheck,
-  IconClockHour4,
+  IconClock,
   IconPlayerPlay,
   IconUsers,
 } from '@tabler/icons-react'
-import { notifications } from '@mantine/notifications'
-import { useDisclosure } from '@mantine/hooks'
 import * as api from '../api/client'
 import { useAuth } from '../auth/AuthContext'
 import { ESTADOS } from '../lib/constants'
-import { fmtDuracion, fmtHora } from '../lib/format'
+import { fmtHora } from '../lib/format'
 import EstadoBadge from '../components/EstadoBadge'
 import PrioridadBadge from '../components/PrioridadBadge'
 import PageHeader from '../components/PageHeader'
+import Card from '../components/ui/Card'
+import Button from '../components/ui/Button'
+import Modal from '../components/ui/Modal'
+import { Select, Textarea } from '../components/ui/Input'
+import LiveTimer from '../components/LiveTimer'
+import { useNotification } from '../hooks/useNotification'
+import EmptyState from '../components/EmptyState'
 
 export default function OperadorPage() {
   const { user } = useAuth()
+  const { showNotification } = useNotification()
   const [servicios, setServicios] = useState([])
   const [miServicio, setMiServicio] = useState(null)
   const [queue, setQueue] = useState({ queueSize: 0, estimatedWaitMinutes: 0, current: null })
@@ -43,9 +34,12 @@ export default function OperadorPage() {
   const [ready, setReady] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  // Modales de cancelación y derivación (finish no lleva observación en la API)
-  const [cancel, cancelH] = useDisclosure(false)
-  const [deriv, derivH] = useDisclosure(false)
+  // Session history (processed tickets)
+  const [historialSesion, setHistorialSesion] = useState([])
+
+  // Modal States
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [derivOpen, setDerivOpen] = useState(false)
   const [observacion, setObservacion] = useState('')
   const [destino, setDestino] = useState('')
 
@@ -92,96 +86,137 @@ export default function OperadorPage() {
       }
     })()
     return () => clearInterval(iv)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cargarServicios])
+  }, [cargarServicios, refrescarCola])
 
-  async function accion(fn, okMsg) {
+  async function accion(fn, okMsg, onCompletado) {
     setBusy(true)
     try {
-      await fn()
-      if (okMsg) notifications.show({ ...okMsg })
+      const res = await fn()
+      if (okMsg) showNotification({ ...okMsg })
+      if (onCompletado && res) onCompletado(res)
       await refrescarCola()
     } catch (e) {
-      notifications.show({ title: 'No se pudo completar', message: e.message, color: 'red' })
+      showNotification({ title: 'No se pudo completar', message: e.message, color: 'red' })
     } finally {
       setBusy(false)
     }
   }
 
   const llamarSiguiente = () =>
-    accion(async () => {
-      const t = await api.llamarSiguiente()
-      setActivo(t)
-      notifications.show({
-        title: 'Turno llamado',
-        message: `${t.codigo} · ${t.estudiante}`,
-        color: 'teal',
-        icon: <IconBellRinging size={18} />,
-      })
-    })
+    accion(
+      async () => await api.llamarSiguiente(),
+      null,
+      (t) => {
+        setActivo(t)
+        showNotification({
+          title: 'Turno llamado',
+          message: `${t.codigo} · ${t.estudiante}`,
+          color: 'teal',
+          icon: <IconBellRinging size={18} />,
+        })
+      }
+    )
 
   const iniciar = () =>
-    accion(async () => {
-      const t = await api.iniciarAtencion(activo.id)
-      setActivo(t)
-    })
+    accion(
+      async () => await api.iniciarAtencion(activo.id),
+      null,
+      (t) => setActivo(t)
+    )
 
   const finalizar = () =>
-    accion(async () => {
-      await api.finalizarTurno(activo.id)
-      const cod = activo.codigo
-      setActivo(null)
-      notifications.show({ message: `Turno ${cod} finalizado`, color: 'teal', icon: <IconCheck size={18} /> })
-    })
+    accion(
+      async () => {
+        await api.finalizarTurno(activo.id)
+        return activo
+      },
+      null,
+      (t) => {
+        setActivo(null)
+        setHistorialSesion((prev) => [
+          { ...t, estado: ESTADOS.FINALIZADO, finishedAt: new Date().toISOString() },
+          ...prev.slice(0, 4),
+        ])
+        showNotification({
+          message: `Turno ${t.codigo} finalizado`,
+          color: 'teal',
+          icon: <IconCheck size={18} />,
+        })
+      }
+    )
 
   const anular = () =>
-    accion(async () => {
-      await api.anularTurno(activo.id, observacion || 'Anulado por el operador')
-      const cod = activo.codigo
-      setActivo(null)
-      setObservacion('')
-      cancelH.close()
-      notifications.show({ message: `Turno ${cod} anulado`, color: 'gray' })
-    })
+    accion(
+      async () => {
+        await api.anularTurno(activo.id, observacion || 'Anulado por el operador')
+        return activo
+      },
+      null,
+      (t) => {
+        setActivo(null)
+        setObservacion('')
+        setCancelOpen(false)
+        setHistorialSesion((prev) => [
+          { ...t, estado: ESTADOS.ANULADO, finishedAt: new Date().toISOString() },
+          ...prev.slice(0, 4),
+        ])
+        showNotification({ message: `Turno ${t.codigo} anulado`, color: 'gray' })
+      }
+    )
 
   const derivar = () =>
-    accion(async () => {
-      const original = await api.derivarTurno(activo.id, {
-        targetServiceId: Number(destino),
-        reason: observacion || 'Derivación entre servicios',
-      })
-      setActivo(null)
-      setObservacion('')
-      setDestino('')
-      derivH.close()
-      notifications.show({
-        title: 'Turno derivado',
-        message: `${original.codigo} → ${original.derivadoA || 'otro servicio'}`,
-        color: 'grape',
-        icon: <IconArrowRight size={18} />,
-      })
-    })
+    accion(
+      async () => {
+        const original = await api.derivarTurno(activo.id, {
+          targetServiceId: Number(destino),
+          reason: observacion || 'Derivación entre servicios',
+        })
+        return original
+      },
+      null,
+      (original) => {
+        setActivo(null)
+        setObservacion('')
+        setDestino('')
+        setDerivOpen(false)
+        setHistorialSesion((prev) => [
+          { ...original, estado: ESTADOS.DERIVADO, finishedAt: new Date().toISOString() },
+          ...prev.slice(0, 4),
+        ])
+        showNotification({
+          title: 'Turno derivado',
+          message: `${original.codigo} → ${original.derivadoA || 'otro servicio'}`,
+          color: 'grape',
+          icon: <IconArrowRight size={18} />,
+        })
+      }
+    )
 
   if (error) {
     return (
-      <>
+      <div className="flex flex-col gap-6 max-w-5xl mx-auto">
         <PageHeader title="Panel de atención" />
-        <Alert color="red" variant="light" icon={<IconAlertTriangle size={18} />} title="Error de conexión">
-          {error}
-        </Alert>
-      </>
+        <div className="flex items-start gap-3 bg-rose-50 border border-rose-100 rounded-2xl p-4 text-rose-800 text-sm">
+          <IconAlertTriangle className="w-5 h-5 text-rose-500 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-bold">Error de conexión:</span> {error}
+          </div>
+        </div>
+      </div>
     )
   }
 
   if (ready && !miServicio) {
     return (
-      <>
+      <div className="flex flex-col gap-6 max-w-5xl mx-auto">
         <PageHeader title="Panel de atención" subtitle={user.nombre} />
-        <Alert color="yellow" variant="light" icon={<IconAlertTriangle size={18} />} title="Sin servicio asignado">
-          Aún no tienes una ventanilla/servicio asignado. Pídele a un administrador que te
-          asigne uno para poder atender turnos.
-        </Alert>
-      </>
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-100 rounded-2xl p-4 text-amber-800 text-sm">
+          <IconAlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+          <div>
+            <span className="font-bold">Sin servicio asignado:</span> Aún no tienes una ventanilla o servicio asignado. Pídele a un administrador que te asigne uno para poder atender turnos.
+          </div>
+        </div>
+      </div>
     )
   }
 
@@ -189,166 +224,193 @@ export default function OperadorPage() {
   const llamado = activo?.estado === ESTADOS.LLAMADO
 
   return (
-    <>
+    <div className="flex flex-col gap-6 max-w-6xl mx-auto">
       <PageHeader
         title="Panel de atención"
-        subtitle={`${user.nombre}${miServicio ? ` · ${miServicio.nombre} (${miServicio.codigo})` : ''}`}
+        subtitle={`${user.nombre} ${miServicio ? `· Ventanilla ${miServicio.nombre} (${miServicio.codigo})` : ''}`}
       />
 
-      <Grid gutter="lg">
-        {/* Panel de atención actual */}
-        <Grid.Col span={{ base: 12, md: 7 }}>
-          <Card padding="xl" mih={280}>
-            <Group justify="space-between" mb="md">
-              <Title order={4}>Atención en curso</Title>
-              {activo && <EstadoBadge estado={activo.estado} size="md" />}
-            </Group>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Panel de atención en curso */}
+        <div className="lg:col-span-8 flex flex-col gap-6">
+          <Card padding="xl" className="shadow-sm border-slate-200 min-h-[300px] flex flex-col justify-between">
+            <div>
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="font-bold text-slate-800 text-base">Atención en curso</h3>
+                {activo && <EstadoBadge estado={activo.estado} />}
+              </div>
 
-            {!activo ? (
-              <Stack align="center" justify="center" py="xl" gap="xs">
-                <ThemeIcon variant="light" color="gray" size={54} radius="xl">
-                  <IconUsers size={26} />
-                </ThemeIcon>
-                <Text c="dimmed" ta="center" maw={320}>
-                  No tienes ningún turno en curso. Llama al siguiente de la cola para comenzar.
-                </Text>
-                <Button
-                  mt="sm"
-                  size="md"
-                  leftSection={<IconBellRinging size={18} />}
-                  onClick={llamarSiguiente}
-                  loading={busy}
-                  disabled={queue.queueSize === 0}
-                >
-                  Llamar siguiente turno
-                </Button>
-                {queue.queueSize === 0 && (
-                  <Text size="xs" c="dimmed">
-                    La cola de {miServicio?.nombre} está vacía.
-                  </Text>
-                )}
-              </Stack>
-            ) : (
-              <>
-                <Group align="center" gap="xl" mt="sm">
-                  <Stack gap={2} align="center">
-                    <Text c="dimmed" size="xs" tt="uppercase" fw={600}>
-                      Turno
-                    </Text>
-                    <Text fw={700} fz={52} ff="monospace" lh={1} c="teal">
-                      {activo.codigo}
-                    </Text>
-                  </Stack>
-                  <Stack gap={8}>
-                    <Text fw={600} fz="lg">
-                      {activo.estudiante}
-                    </Text>
-                    <Group gap="xs">
-                      <PrioridadBadge prioridad={activo.prioridad} />
-                      <Badge variant="outline" color="gray">
-                        {activo.servicioNombre}
-                      </Badge>
-                    </Group>
-                    {activo.derivadoA && (
-                      <Text size="xs" c="grape">
-                        Derivación relacionada: {activo.derivadoA}
-                      </Text>
-                    )}
-                    <Text size="xs" c="dimmed">
-                      Llamado a las {fmtHora(activo.calledAt)}
-                      {enAtencion && activo.startedAt
-                        ? ` · en atención hace ${fmtDuracion(activo.startedAt)}`
-                        : ' · esperando inicio'}
-                    </Text>
-                  </Stack>
-                </Group>
-
-                <Group mt="xl" gap="sm">
-                  {llamado && (
-                    <Button leftSection={<IconPlayerPlay size={18} />} onClick={iniciar} loading={busy}>
-                      Iniciar atención
-                    </Button>
-                  )}
-                  {enAtencion && (
-                    <>
-                      <Button color="teal" leftSection={<IconCheck size={18} />} onClick={finalizar} loading={busy}>
-                        Finalizar
-                      </Button>
-                      <Button
-                        variant="light"
-                        color="grape"
-                        leftSection={<IconArrowRight size={18} />}
-                        onClick={derivH.open}
-                      >
-                        Derivar
-                      </Button>
-                    </>
-                  )}
-                  <Button variant="subtle" color="red" ml="auto" onClick={cancelH.open}>
-                    Anular
+              {!activo ? (
+                <div className="flex-1 flex flex-col items-center justify-center py-12 text-center">
+                  <div className="p-3.5 bg-slate-50 text-slate-400 rounded-2xl shadow-sm border border-slate-100 mb-4 animate-pulse">
+                    <IconUsers className="w-8 h-8" />
+                  </div>
+                  <p className="text-sm font-semibold text-slate-700">No hay turnos activos</p>
+                  <p className="text-xs text-slate-400 max-w-xs leading-relaxed mt-1 mb-6">
+                    Llama al siguiente estudiante de la cola del servicio para comenzar la atención.
+                  </p>
+                  <Button
+                    size="lg"
+                    leftSection={<IconBellRinging className="w-4.5 h-4.5" />}
+                    onClick={llamarSiguiente}
+                    loading={busy}
+                    disabled={queue.queueSize === 0}
+                  >
+                    Llamar siguiente turno
                   </Button>
-                </Group>
-              </>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-6 animate-slide-in">
+                  <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
+                    <div className="flex items-center gap-5">
+                      <div className="flex flex-col items-center justify-center bg-indigo-50 border border-indigo-100 text-indigo-700 rounded-2xl p-4 min-w-[100px] font-mono leading-none ticket-glow">
+                        <span className="text-[10px] font-bold text-indigo-400 uppercase tracking-widest mb-2">Turno</span>
+                        <span className="text-4xl font-black">{activo.codigo}</span>
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <h4 className="font-bold text-slate-800 text-lg leading-tight">
+                          {activo.estudiante}
+                        </h4>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <PrioridadBadge prioridad={activo.prioridad} />
+                          <span className="text-xs font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">
+                            {activo.servicioNombre}
+                          </span>
+                        </div>
+                        {activo.derivadoA && (
+                          <span className="text-xs font-bold text-violet-600 bg-violet-50 px-2.5 py-1 rounded-lg border border-violet-100 w-fit">
+                            Derivado de: {activo.derivadoA}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col sm:items-end gap-1.5 shrink-0">
+                      <span className="text-xs text-slate-400 font-semibold">
+                        Llamado: {fmtHora(activo.calledAt)}
+                      </span>
+                      {enAtencion && activo.startedAt && (
+                        <div className="text-xs bg-rose-50 text-rose-700 border border-rose-100 px-2.5 py-1 rounded-lg font-bold flex items-center gap-1.5">
+                          <IconClock className="w-3.5 h-3.5" />
+                          <span>Atendiendo hace</span>
+                          <LiveTimer desde={activo.startedAt} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {activo && (
+              <div className="flex flex-wrap items-center gap-3 pt-6 border-t border-slate-100 mt-6">
+                {llamado && (
+                  <Button
+                    leftSection={<IconPlayerPlay className="w-4 h-4" />}
+                    onClick={iniciar}
+                    loading={busy}
+                    variant="primary"
+                  >
+                    Iniciar atención
+                  </Button>
+                )}
+                {enAtencion && (
+                  <>
+                    <Button
+                      variant="success"
+                      leftSection={<IconCheck className="w-4 h-4" />}
+                      onClick={finalizar}
+                      loading={busy}
+                    >
+                      Finalizar atención
+                    </Button>
+                    <Button
+                      variant="lightPurple"
+                      leftSection={<IconArrowRight className="w-4 h-4" />}
+                      onClick={() => setDerivOpen(true)}
+                    >
+                      Derivar turno
+                    </Button>
+                  </>
+                )}
+                <Button
+                  variant="ghost"
+                  className="text-rose-600 hover:bg-rose-50 hover:text-rose-700 ml-auto"
+                  onClick={() => setCancelOpen(true)}
+                >
+                  Anular turno
+                </Button>
+              </div>
             )}
           </Card>
-        </Grid.Col>
+
+          {/* Historial de la sesión */}
+          {historialSesion.length > 0 && (
+            <div className="flex flex-col gap-3 animate-slide-in">
+              <h3 className="font-bold text-xs text-slate-400 uppercase tracking-wider">
+                Historial de la sesión (Últimos 5)
+              </h3>
+              <Card padding="none" className="overflow-hidden border-slate-200 shadow-xs">
+                <div className="divide-y divide-slate-100">
+                  {historialSesion.map((t) => (
+                    <div key={t.id} className="flex items-center justify-between p-4 bg-white hover:bg-slate-50/50 transition-colors">
+                      <div className="flex items-center gap-3">
+                        <span className="font-mono font-bold text-slate-700">{t.codigo}</span>
+                        <span className="text-xs text-slate-500 font-semibold">{t.estudiante}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] text-slate-400 font-medium">
+                          {fmtHora(t.finishedAt)}
+                        </span>
+                        <EstadoBadge estado={t.estado} size="sm" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            </div>
+          )}
+        </div>
 
         {/* Estado de la cola */}
-        <Grid.Col span={{ base: 12, md: 5 }}>
-          <Card padding="lg">
-            <Title order={4} mb="md">
-              Cola de {miServicio?.nombre}
-            </Title>
+        <div className="lg:col-span-4 flex flex-col gap-6">
+          <Card padding="lg" className="shadow-sm border-slate-200">
+            <h3 className="font-bold text-slate-800 text-base mb-6">Estado de la cola</h3>
 
-            <Group grow mb="md">
-              <Stack gap={2} align="center">
-                <Text fw={700} fz={40} lh={1} c="blue">
-                  {queue.queueSize}
-                </Text>
-                <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                  En espera
-                </Text>
-              </Stack>
-              <Stack gap={2} align="center">
-                <Group gap={4} align="baseline">
-                  <Text fw={700} fz={40} lh={1}>
-                    {queue.estimatedWaitMinutes}
-                  </Text>
-                  <Text size="sm" c="dimmed">
-                    min
-                  </Text>
-                </Group>
-                <Text size="xs" c="dimmed" tt="uppercase" fw={600}>
-                  Espera est.
-                </Text>
-              </Stack>
-            </Group>
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div className="flex flex-col items-center bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                <span className="text-3xl font-black text-indigo-600">{queue.queueSize}</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">En espera</span>
+              </div>
+              <div className="flex flex-col items-center bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                <div className="flex items-baseline gap-0.5">
+                  <span className="text-3xl font-black text-slate-800">{queue.estimatedWaitMinutes}</span>
+                  <span className="text-xs font-semibold text-slate-400">min</span>
+                </div>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-1">Espera est.</span>
+              </div>
+            </div>
 
             {queue.current ? (
-              <Card padding="sm" bg="var(--mantine-color-gray-0)">
-                <Group justify="space-between">
-                  <Group gap="xs">
-                    <IconClockHour4 size={16} />
-                    <Text size="sm" c="dimmed">
-                      Atendiendo ahora
-                    </Text>
-                  </Group>
-                  <Text fw={700} ff="monospace">
-                    {queue.current.codigo}
-                  </Text>
-                </Group>
-              </Card>
+              <div className="bg-slate-50 border border-slate-200/60 rounded-xl p-3.5 flex justify-between items-center mb-6">
+                <div className="flex items-center gap-2 text-slate-400">
+                  <IconClock className="w-4.5 h-4.5" />
+                  <span className="text-xs font-semibold text-slate-500">Atendiendo ahora</span>
+                </div>
+                <span className="font-mono font-bold text-slate-800 text-sm tracking-wide bg-white px-2 py-0.5 rounded-lg border border-slate-200">
+                  {queue.current.codigo}
+                </span>
+              </div>
             ) : (
-              <Text size="sm" c="dimmed" ta="center" py="xs">
-                Nadie en atención en este momento.
-              </Text>
+              <div className="text-center py-4 text-xs font-semibold text-slate-400 border border-dashed border-slate-200 rounded-xl mb-6">
+                Nadie en atención en este momento
+              </div>
             )}
 
             <Button
               fullWidth
-              mt="md"
-              variant="light"
-              leftSection={<IconBellRinging size={18} />}
+              variant="secondary"
+              leftSection={<IconBellRinging className="w-4 h-4" />}
               onClick={llamarSiguiente}
               loading={busy}
               disabled={queue.queueSize === 0 || !!activo}
@@ -356,76 +418,79 @@ export default function OperadorPage() {
               Llamar siguiente
             </Button>
             {activo && (
-              <Text size="xs" c="dimmed" ta="center" mt={6}>
-                Cierra el turno actual antes de llamar a otro.
-              </Text>
+              <p className="text-[10px] text-slate-400 font-semibold text-center mt-2.5">
+                * Concluye la atención en curso antes de llamar a otro.
+              </p>
             )}
           </Card>
-        </Grid.Col>
-      </Grid>
+        </div>
+      </div>
 
-      {/* Modal anular */}
-      <Modal opened={cancel} onClose={cancelH.close} title="Anular turno" centered>
-        <Text size="sm" c="dimmed" mb="md">
-          Turno <b>{activo?.codigo}</b> · {activo?.estudiante}
-        </Text>
-        <Textarea
-          label="Motivo de la anulación"
-          placeholder="Ej. El estudiante no se presentó"
-          value={observacion}
-          onChange={(e) => setObservacion(e.currentTarget.value)}
-          minRows={3}
-          autosize
-        />
-        <Group justify="flex-end" mt="lg">
-          <Button variant="default" onClick={cancelH.close}>
-            Cerrar
-          </Button>
-          <Button color="red" onClick={anular} loading={busy}>
-            Anular turno
-          </Button>
-        </Group>
+      {/* Modal Anular */}
+      <Modal opened={cancelOpen} onClose={() => setCancelOpen(false)} title="Anular turno" size="md">
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-slate-500 font-medium">
+            Estás a punto de anular el turno <b className="text-slate-800">{activo?.codigo}</b> de <b className="text-slate-800">{activo?.estudiante}</b>.
+          </p>
+          <Textarea
+            label="Motivo de la anulación"
+            placeholder="Ej: El estudiante no se presentó tras ser llamado reiteradamente."
+            value={observacion}
+            onChange={(e) => setObservacion(e.target.value)}
+            minRows={3}
+            required
+          />
+          <div className="flex justify-end gap-2.5 mt-2">
+            <Button variant="ghost" onClick={() => setCancelOpen(false)}>
+              Cancelar
+            </Button>
+            <Button color="red" variant="danger" onClick={anular} loading={busy} disabled={!observacion.trim()}>
+              Anular Turno
+            </Button>
+          </div>
+        </div>
       </Modal>
 
-      {/* Modal derivación */}
-      <Modal opened={deriv} onClose={derivH.close} title="Derivar a otro servicio" centered>
-        <Text size="sm" c="dimmed" mb="md">
-          Turno <b>{activo?.codigo}</b> · {activo?.estudiante}
-        </Text>
-        <Stack gap="md">
+      {/* Modal Derivar */}
+      <Modal opened={derivOpen} onClose={() => setDerivOpen(false)} title="Derivar a otro servicio" size="md">
+        <div className="flex flex-col gap-4">
+          <p className="text-xs text-slate-500 font-medium">
+            Estás a punto de derivar el turno <b className="text-slate-800">{activo?.codigo}</b>. Se creará un nuevo ticket en la cola del servicio destino.
+          </p>
           <Select
-            label="Servicio destino"
+            label="Servicio de destino"
             placeholder="Selecciona un servicio"
             data={servicios
               .filter((s) => s.id !== miServicio?.id && s.activo)
               .map((s) => ({ value: String(s.id), label: s.nombre }))}
             value={destino}
             onChange={setDestino}
+            required
           />
           <Textarea
             label="Motivo de la derivación"
-            placeholder="Ej. Requiere validación de pago en Caja"
+            placeholder="Ej: Requiere regularizar un pago en ventanilla de tesorería primero."
             value={observacion}
-            onChange={(e) => setObservacion(e.currentTarget.value)}
-            minRows={2}
-            autosize
+            onChange={(e) => setObservacion(e.target.value)}
+            minRows={2.5}
+            required
           />
-        </Stack>
-        <Group justify="flex-end" mt="lg">
-          <Button variant="default" onClick={derivH.close}>
-            Cancelar
-          </Button>
-          <Button
-            color="grape"
-            onClick={derivar}
-            loading={busy}
-            disabled={!destino}
-            leftSection={<IconArrowRight size={16} />}
-          >
-            Derivar turno
-          </Button>
-        </Group>
+          <div className="flex justify-end gap-2.5 mt-2">
+            <Button variant="ghost" onClick={() => setDerivOpen(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="primary"
+              onClick={derivar}
+              loading={busy}
+              disabled={!destino || !observacion.trim()}
+              leftSection={<IconArrowRight className="w-4 h-4" />}
+            >
+              Derivar Turno
+            </Button>
+          </div>
+        </div>
       </Modal>
-    </>
+    </div>
   )
 }
