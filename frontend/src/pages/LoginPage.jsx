@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { IconLock, IconUser, IconAlertTriangle } from '@tabler/icons-react'
 import { useAuth } from '../auth/AuthContext'
+import { useBranding } from '../context/BrandingContext'
+import { getMockMode, setMockMode } from '../api/http'
 import { rutaInicioPorRol } from '../lib/rutas'
 import Brand from '../components/Brand'
 import Button from '../components/ui/Button'
@@ -9,25 +11,26 @@ import Card from '../components/ui/Card'
 import { TextInput, PasswordInput } from '../components/ui/Input'
 
 const DEMO = [
-  { rol: 'Administrador', username: 'admin', password: 'admin123', color: 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100' },
-  { rol: 'Operador', username: 'operador', password: 'operador123', color: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' },
-  { rol: 'Estudiante', username: 'estudiante', password: 'estudiante123', color: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100' },
+  { rol: 'Administrador', email: 'admin@unica.edu.pe', password: 'admin123', color: 'bg-violet-50 text-violet-700 border-violet-200 hover:bg-violet-100' },
+  { rol: 'Operador', email: 'operador@unica.edu.pe', password: 'operador123', color: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100' },
+  { rol: 'Estudiante', email: 'estudiante@unica.edu.pe', password: 'estudiante123', color: 'bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100' },
 ]
 
 export default function LoginPage() {
   const { login } = useAuth()
   const navigate = useNavigate()
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [isMock, setIsMock] = useState(() => getMockMode())
 
   async function handleSubmit(e) {
     e.preventDefault()
     setError('')
     setLoading(true)
     try {
-      const user = await login(username, password)
+      const user = await login(email, password)
       navigate(rutaInicioPorRol(user.rol), { replace: true })
     } catch (err) {
       setError(err.message)
@@ -37,21 +40,51 @@ export default function LoginPage() {
   }
 
   function usarDemo(d) {
-    setUsername(d.username)
+    setEmail(d.email)
     setPassword(d.password)
     setError('')
   }
 
-  const universityName = import.meta.env.VITE_UNIVERSITY_NAME || 'Universidad Nacional'
-  const systemName = import.meta.env.VITE_SYSTEM_NAME || 'Sistema de Colas'
+  const { universityName, systemName, coverBase64 } = useBranding()
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
+    <div className="min-h-screen bg-slate-50 flex flex-col">
+      {isMock && (
+        <div className="bg-amber-500 text-white px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center justify-between shadow-sm animate-pulse w-full z-10 shrink-0">
+          <div className="flex items-center gap-2">
+            <IconAlertTriangle className="w-5 h-5 shrink-0" />
+            <span>Modo de Pruebas Activo (Mock Data) — Usando base de datos simulada local.</span>
+          </div>
+          <button 
+            type="button"
+            onClick={() => {
+              setMockMode(false)
+              setIsMock(false)
+              window.location.reload()
+            }}
+            className="ml-4 bg-amber-700 hover:bg-amber-800 text-white px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shrink-0"
+          >
+            Conectar al Servidor
+          </button>
+        </div>
+      )}
+
+      <div className="flex-1 flex flex-col md:flex-row">
       {/* Panel Izquierdo: Branding (Oculto en móviles muy pequeños si es necesario, pero visible en general) */}
-      <div className="hidden md:flex md:w-1/2 bg-gradient-to-tr from-indigo-950 via-indigo-900 to-indigo-800 text-white flex-col justify-between p-12 relative overflow-hidden">
+      <div 
+        className="hidden md:flex md:w-1/2 bg-gradient-to-tr from-indigo-950 via-indigo-900 to-indigo-800 text-white flex-col justify-between p-12 relative overflow-hidden"
+        style={coverBase64 ? { backgroundImage: `url(${coverBase64})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {}}
+      >
+        {/* Dark overlay to maintain text readability when custom cover is used */}
+        {coverBase64 && <div className="absolute inset-0 bg-indigo-950/70 backdrop-blur-[1px] pointer-events-none" />}
+
         {/* Background glow graphics */}
-        <div className="absolute top-0 right-0 w-96 h-96 bg-sky-500/10 rounded-full blur-3xl pointer-events-none translate-x-20 -translate-y-20" />
-        <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none -translate-x-20 translate-y-20" />
+        {!coverBase64 && (
+          <>
+            <div className="absolute top-0 right-0 w-96 h-96 bg-sky-500/10 rounded-full blur-3xl pointer-events-none translate-x-20 -translate-y-20" />
+            <div className="absolute bottom-0 left-0 w-96 h-96 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none -translate-x-20 translate-y-20" />
+          </>
+        )}
 
         <div className="relative z-10">
           <Brand size="lg" dark />
@@ -100,13 +133,14 @@ export default function LoginPage() {
               )}
 
               <TextInput
-                label="Usuario / Código"
-                placeholder="Ingresa tu usuario"
+                label="Correo Electrónico"
+                placeholder="correo@unica.edu.pe"
+                type="email"
                 leftSection={<IconUser className="w-5 h-5 text-slate-400" />}
-                value={username}
-                onChange={(e) => setUsername(e.currentTarget.value)}
+                value={email}
+                onChange={(e) => setEmail(e.currentTarget.value)}
                 required
-                autoComplete="username"
+                autoComplete="email"
               />
 
               <PasswordInput
@@ -145,14 +179,14 @@ export default function LoginPage() {
             <div className="flex flex-col gap-2.5">
               {DEMO.map((d) => (
                 <button
-                  key={d.username}
+                  key={d.email}
                   type="button"
                   onClick={() => usarDemo(d)}
                   className={`w-full flex items-center justify-between border rounded-xl px-4 py-2.5 text-xs font-semibold tracking-wide transition-all cursor-pointer ${d.color}`}
                 >
                   <span className="font-bold">{d.rol}</span>
                   <span className="opacity-75 font-mono">
-                    {d.username} · {d.password}
+                    {d.email} · {d.password}
                   </span>
                 </button>
               ))}
@@ -165,5 +199,6 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
-  )
+  </div>
+)
 }

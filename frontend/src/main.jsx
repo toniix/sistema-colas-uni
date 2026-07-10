@@ -6,16 +6,19 @@ import './index.css'
 import App from './App.jsx'
 import { AuthProvider } from './auth/AuthContext'
 import { NotificationProvider, NotificationListener } from './hooks/useNotification'
+import { BrandingProvider } from './context/BrandingContext'
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <NotificationProvider>
-      <NotificationListener />
-      <BrowserRouter>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
-      </BrowserRouter>
-    </NotificationProvider>
+    <BrandingProvider>
+      <NotificationProvider>
+        <NotificationListener />
+        <BrowserRouter>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </BrowserRouter>
+      </NotificationProvider>
+    </BrandingProvider>
   </StrictMode>,
 )

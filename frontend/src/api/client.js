@@ -238,3 +238,12 @@ export async function reportes() {
     porHora,
   }
 }
+
+// ---- Configuración / Branding (/api/settings) -------------------------------
+export async function getSettings() {
+  return await http.get('/api/settings', { auth: false })
+}
+
+export async function saveSettings(data) {
+  return await http.put('/api/settings', data)
+}

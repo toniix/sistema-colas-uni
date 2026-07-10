@@ -6,6 +6,7 @@ import {
   IconLayoutGrid,
   IconTicket,
   IconUsers,
+  IconPhoto,
 } from '@tabler/icons-react'
 import { ROLES } from '../lib/constants'
 
@@ -25,6 +26,7 @@ export const NAV = {
     { to: '/admin/servicios', label: 'Servicios / Ventanillas', icon: IconLayoutGrid },
     { to: '/admin/usuarios', label: 'Usuarios / Cuentas', icon: IconUsers },
     { to: '/admin/auditoria', label: 'Bitácora Auditoría', icon: IconClipboardList },
+    { to: '/admin/branding', label: 'Personalización', icon: IconPhoto },
     { to: '/display', label: 'Pantalla de turnos', icon: IconDeviceDesktop },
   ],
 }

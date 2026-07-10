@@ -14,6 +14,7 @@ import ReportesPage from './pages/admin/ReportesPage'
 import ServiciosPage from './pages/admin/ServiciosPage'
 import UsuariosPage from './pages/admin/UsuariosPage'
 import AuditoriaPage from './pages/admin/AuditoriaPage'
+import BrandingSettingsPage from './pages/admin/BrandingSettingsPage'
 import NotFoundPage from './pages/NotFoundPage'
 
 export default function App() {
@@ -93,6 +94,14 @@ export default function App() {
           element={
             <RequireAuth roles={[ROLES.ADMIN]}>
               <AuditoriaPage />
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/admin/branding"
+          element={
+            <RequireAuth roles={[ROLES.ADMIN]}>
+              <BrandingSettingsPage />
             </RequireAuth>
           }
         />

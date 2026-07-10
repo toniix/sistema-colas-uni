@@ -18,6 +18,7 @@ import Card from '../../components/ui/Card'
 import Badge from '../../components/ui/Badge'
 import EmptyState from '../../components/EmptyState'
 import { SkeletonCard, SkeletonList } from '../../components/SkeletonCard'
+import SetupWizardModal from '../../components/admin/SetupWizardModal'
 
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState(null)
@@ -91,6 +92,7 @@ export default function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
+      <SetupWizardModal />
       <PageHeader 
         title="Dashboard Principal" 
         subtitle="Monitoreo de colas, atención y auditoría en tiempo real."
