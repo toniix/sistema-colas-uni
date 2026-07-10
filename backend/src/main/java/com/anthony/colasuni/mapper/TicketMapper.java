@@ -11,7 +11,7 @@ public class TicketMapper {
                 .id(ticket.getId())
                 .ticketCode(ticket.getTicketCode())
                 .status(ticket.getStatus())
-                .type(ticket.getType())
+                .priority(ticket.getPriority())
                 .position(ticket.getPosition())
                 .student(UserMapper.toSummary(ticket.getStudent()))
                 .service(ServiceMapper.toResponse(ticket.getService()))
@@ -21,7 +21,6 @@ public class TicketMapper {
                 .cancellationObservation(ticket.getCancellationObservation())
                 .attentionObservation(ticket.getAttentionObservation())
                 .calledAt(ticket.getCalledAt())
-
                 .attendedAt(ticket.getAttendedAt())
                 .finishedAt(ticket.getFinishedAt())
                 .createdAt(ticket.getCreatedAt())

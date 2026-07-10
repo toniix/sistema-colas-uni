@@ -2,6 +2,7 @@ package com.anthony.colasuni.dto.audit;
 
 import com.anthony.colasuni.dto.user.UserSummaryDTO;
 import com.anthony.colasuni.enums.AuditAction;
+import com.anthony.colasuni.enums.AuditResult;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -22,9 +23,7 @@ public class AuditLogResponse {
     private String oldValue;
     private String newValue;
     private String ipAddress;
-    private String host;
-    private com.anthony.colasuni.enums.AuditResult result;
+    private AuditResult result;
     private String description;
     private LocalDateTime createdAt;
-
 }

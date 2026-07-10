@@ -1,6 +1,6 @@
 package com.anthony.colasuni.dto.ticket;
 
-import com.anthony.colasuni.enums.TicketType;
+import com.anthony.colasuni.enums.TicketPriority;
 import jakarta.validation.constraints.NotNull;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -14,6 +14,8 @@ public class CreateTicketRequest {
     @NotNull(message = "El ID del servicio es obligatorio.")
     private Long serviceId;
 
-    @NotNull(message = "El tipo de ticket (NORMAL o PREFERENCIAL) es obligatorio.")
-    private TicketType type;
+    /**
+     * Prioridad del turno. Si no se indica, el servicio asignará NORMAL por defecto.
+     */
+    private TicketPriority priority;
 }

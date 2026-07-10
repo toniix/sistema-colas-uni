@@ -21,7 +21,7 @@ public class TicketController {
     private final TicketService ticketService;
 
     @PostMapping
-    @PreAuthorize("hasRole('ESTUDIANTE')")
+    @PreAuthorize("hasRole('STUDENT')")
     public ResponseEntity<TicketResponse> createTicket(@Valid @RequestBody CreateTicketRequest request) {
         return new ResponseEntity<>(ticketService.createTicket(request), HttpStatus.CREATED);
     }
@@ -32,25 +32,25 @@ public class TicketController {
     }
 
     @GetMapping("/my")
-    @PreAuthorize("hasRole('ESTUDIANTE')")
+    @PreAuthorize("hasRole('STUDENT')")
     public ResponseEntity<List<TicketResponse>> getMyTickets() {
         return ResponseEntity.ok(ticketService.getMyTickets());
     }
 
     @PostMapping("/call-next")
-    @PreAuthorize("hasRole('OPERADOR')")
+    @PreAuthorize("hasRole('OPERATOR')")
     public ResponseEntity<TicketResponse> callNextTicket() {
         return ResponseEntity.ok(ticketService.callNextTicket());
     }
 
     @PatchMapping("/{id}/start")
-    @PreAuthorize("hasRole('OPERADOR')")
+    @PreAuthorize("hasRole('OPERATOR')")
     public ResponseEntity<TicketResponse> startAttention(@PathVariable Long id) {
         return ResponseEntity.ok(ticketService.startAttention(id));
     }
 
     @PatchMapping("/{id}/finish")
-    @PreAuthorize("hasRole('OPERADOR')")
+    @PreAuthorize("hasRole('OPERATOR')")
     public ResponseEntity<TicketResponse> finishTicket(
             @PathVariable Long id,
             @RequestBody(required = false) FinishTicketRequest request
@@ -67,7 +67,7 @@ public class TicketController {
     }
 
     @PatchMapping("/{id}/derive")
-    @PreAuthorize("hasRole('OPERADOR')")
+    @PreAuthorize("hasRole('OPERATOR')")
     public ResponseEntity<TicketResponse> deriveTicket(
             @PathVariable Long id,
             @Valid @RequestBody DerivationRequest request
@@ -81,13 +81,13 @@ public class TicketController {
     }
 
     @GetMapping("/queue/{serviceId}/list")
-    @PreAuthorize("hasAnyRole('OPERADOR', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('OPERATOR', 'ADMIN')")
     public ResponseEntity<List<TicketResponse>> getQueueList(@PathVariable Long serviceId) {
         return ResponseEntity.ok(ticketService.getQueueList(serviceId));
     }
 
     @GetMapping("/current")
-    @PreAuthorize("hasRole('OPERADOR')")
+    @PreAuthorize("hasRole('OPERATOR')")
     public ResponseEntity<TicketResponse> getCurrentActiveTicket() {
         TicketResponse ticketResponse = ticketService.getActiveTicketForCurrentOperator();
         if (ticketResponse == null) {
@@ -101,5 +101,4 @@ public class TicketController {
     public ResponseEntity<Page<TicketResponse>> getHistory(Pageable pageable) {
         return ResponseEntity.ok(ticketService.getHistory(pageable));
     }
-
 }

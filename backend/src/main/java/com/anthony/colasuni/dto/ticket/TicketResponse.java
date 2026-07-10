@@ -2,8 +2,8 @@ package com.anthony.colasuni.dto.ticket;
 
 import com.anthony.colasuni.dto.service.ServiceResponse;
 import com.anthony.colasuni.dto.user.UserSummaryDTO;
+import com.anthony.colasuni.enums.TicketPriority;
 import com.anthony.colasuni.enums.TicketStatus;
-import com.anthony.colasuni.enums.TicketType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -19,7 +19,7 @@ public class TicketResponse {
     private Long id;
     private String ticketCode;
     private TicketStatus status;
-    private TicketType type;
+    private TicketPriority priority;
     private Integer position;
     private UserSummaryDTO student;
     private ServiceResponse service;
@@ -29,7 +29,6 @@ public class TicketResponse {
     private String cancellationObservation;
     private String attentionObservation;
     private LocalDateTime calledAt;
-
     private LocalDateTime attendedAt;
     private LocalDateTime finishedAt;
     private LocalDateTime createdAt;

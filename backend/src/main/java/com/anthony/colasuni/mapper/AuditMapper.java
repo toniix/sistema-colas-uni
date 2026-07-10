@@ -16,11 +16,9 @@ public class AuditMapper {
                 .oldValue(log.getOldValue())
                 .newValue(log.getNewValue())
                 .ipAddress(log.getIpAddress())
-                .host(log.getHost())
                 .result(log.getResult())
                 .description(log.getDescription())
                 .createdAt(log.getCreatedAt())
-
                 .build();
     }
 }

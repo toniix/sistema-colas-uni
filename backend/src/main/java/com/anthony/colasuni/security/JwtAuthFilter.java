@@ -7,21 +7,20 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.lang.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.List;
 
 @Component
 @RequiredArgsConstructor
 public class JwtAuthFilter extends OncePerRequestFilter {
 
     private final JwtService jwtService;
-    private final UserDetailsService userDetailsService;
 
     @Override
     protected void doFilterInternal(
@@ -48,15 +47,18 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         // Verificar si el nombre de usuario no es null y si no hay una autenticación en
         // el contexto de seguridad
         if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            // Cargar los datos del usuario desde la base de datos
-            UserDetails userDetails = this.userDetailsService.loadUserByUsername(username);
+            // Verificar si el token es válido (firma y expiración) sin consultar la base de datos
+            if (jwtService.isTokenValid(jwt)) {
+                // Extraer los roles almacenados en el token
+                List<String> roles = jwtService.extractRoles(jwt);
+                List<SimpleGrantedAuthority> authorities = roles == null ? List.of() : roles.stream()
+                        .map(SimpleGrantedAuthority::new)
+                        .toList();
 
-            // Verificar si el token es válido
-            if (jwtService.isTokenValid(jwt, userDetails)) {
                 UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                        userDetails,
+                        username,
                         null,
-                        userDetails.getAuthorities());
+                        authorities);
                 authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
                 SecurityContextHolder.getContext().setAuthentication(authToken);
             }

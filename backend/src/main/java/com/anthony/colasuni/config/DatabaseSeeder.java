@@ -3,6 +3,7 @@ package com.anthony.colasuni.config;
 import com.anthony.colasuni.entity.ServiceEntity;
 import com.anthony.colasuni.entity.User;
 import com.anthony.colasuni.enums.AuditAction;
+import com.anthony.colasuni.enums.AuditResult;
 import com.anthony.colasuni.enums.RoleEnum;
 import com.anthony.colasuni.repository.ServiceRepository;
 import com.anthony.colasuni.repository.UserRepository;
@@ -38,7 +39,7 @@ public class DatabaseSeeder implements CommandLineRunner {
                     .enabled(true)
                     .build();
             User savedAdmin = userRepository.save(admin);
-            auditService.logAction(AuditAction.USER_CREATED, "User", savedAdmin.getId(), null, savedAdmin, "Usuario Administrador Semilla Creado", savedAdmin, com.anthony.colasuni.enums.AuditResult.OK);
+            auditService.logAction(AuditAction.USER_CREATED, "User", savedAdmin.getId(), null, savedAdmin, "Usuario Administrador Semilla Creado", savedAdmin, AuditResult.OK);
 
             // 2. Crear Operador
             User operator = User.builder()
@@ -46,11 +47,11 @@ public class DatabaseSeeder implements CommandLineRunner {
                     .email("operador@uni.edu.pe")
                     .fullName("Juan Pérez (Operador MAT)")
                     .password(passwordEncoder.encode("operador123"))
-                    .role(RoleEnum.OPERADOR)
+                    .role(RoleEnum.OPERATOR)
                     .enabled(true)
                     .build();
             User savedOperator = userRepository.save(operator);
-            auditService.logAction(AuditAction.USER_CREATED, "User", savedOperator.getId(), null, savedOperator, "Usuario Operador Semilla Creado", savedAdmin, com.anthony.colasuni.enums.AuditResult.OK);
+            auditService.logAction(AuditAction.USER_CREATED, "User", savedOperator.getId(), null, savedOperator, "Usuario Operador Semilla Creado", savedAdmin, AuditResult.OK);
 
             // 3. Crear Estudiante
             User student = User.builder()
@@ -58,11 +59,11 @@ public class DatabaseSeeder implements CommandLineRunner {
                     .email("estudiante@uni.edu.pe")
                     .fullName("Carlos Gómez (Estudiante)")
                     .password(passwordEncoder.encode("estudiante123"))
-                    .role(RoleEnum.ESTUDIANTE)
+                    .role(RoleEnum.STUDENT)
                     .enabled(true)
                     .build();
             User savedStudent = userRepository.save(student);
-            auditService.logAction(AuditAction.USER_CREATED, "User", savedStudent.getId(), null, savedStudent, "Usuario Estudiante Semilla Creado", savedAdmin, com.anthony.colasuni.enums.AuditResult.OK);
+            auditService.logAction(AuditAction.USER_CREATED, "User", savedStudent.getId(), null, savedStudent, "Usuario Estudiante Semilla Creado", savedAdmin, AuditResult.OK);
 
 
             // 4. Crear Servicio MAT (Matrícula) asignado a Operador

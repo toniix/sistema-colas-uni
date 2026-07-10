@@ -1,6 +1,7 @@
 package com.anthony.colasuni.entity;
 
 import com.anthony.colasuni.enums.AuditAction;
+import com.anthony.colasuni.enums.AuditResult;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -26,11 +27,12 @@ public class AuditLog {
     @Column(name = "entity_type", nullable = false, length = 50)
     private String entityType;
 
-    @Column(name = "entity_id", nullable = false)
+    @Column(name = "entity_id")
     private Long entityId;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "performed_by_id")
+    @JoinColumn(name = "performed_by_id",
+                foreignKey = @ForeignKey(name = "fk_audit_user"))
     private User performedBy;
 
     @Column(name = "old_value", length = 4000)
@@ -39,15 +41,16 @@ public class AuditLog {
     @Column(name = "new_value", length = 4000)
     private String newValue;
 
+    /**
+     * Dirección IP del cliente que generó la acción.
+     * Se obtiene automáticamente desde HttpServletRequest.
+     */
     @Column(name = "ip_address", length = 45)
     private String ipAddress;
 
-    @Column(length = 100)
-    private String host;
-
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
-    private com.anthony.colasuni.enums.AuditResult result;
+    private AuditResult result;
 
     @Column(length = 1000)
     private String description;

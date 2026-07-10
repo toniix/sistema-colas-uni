@@ -6,7 +6,17 @@ import lombok.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "services")
+@Table(
+    name = "services",
+    indexes = {
+        @Index(name = "idx_service_name",   columnList = "name"),
+        @Index(name = "idx_service_prefix", columnList = "prefix")
+    },
+    uniqueConstraints = {
+        @UniqueConstraint(name = "uk_service_name",   columnNames = "name"),
+        @UniqueConstraint(name = "uk_service_prefix", columnNames = "prefix")
+    }
+)
 @Getter
 @Setter
 @NoArgsConstructor
@@ -36,7 +46,8 @@ public class ServiceEntity {
     private boolean active = true;
 
     @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "assigned_operator_id", unique = true)
+    @JoinColumn(name = "assigned_operator_id", unique = true,
+                foreignKey = @ForeignKey(name = "fk_service_operator"))
     private User assignedOperator;
 
     @Column(name = "created_at", nullable = false, updatable = false)

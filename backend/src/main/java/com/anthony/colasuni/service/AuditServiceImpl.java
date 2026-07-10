@@ -4,6 +4,7 @@ import com.anthony.colasuni.dto.audit.AuditLogResponse;
 import com.anthony.colasuni.entity.AuditLog;
 import com.anthony.colasuni.entity.User;
 import com.anthony.colasuni.enums.AuditAction;
+import com.anthony.colasuni.enums.AuditResult;
 import com.anthony.colasuni.mapper.AuditMapper;
 import com.anthony.colasuni.repository.AuditLogRepository;
 import com.anthony.colasuni.repository.UserRepository;
@@ -17,6 +18,10 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 @Service
 @RequiredArgsConstructor
@@ -29,19 +34,20 @@ public class AuditServiceImpl implements AuditService {
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void logAction(AuditAction action, String entityType, Long entityId, Object oldValue, Object newValue, String description, com.anthony.colasuni.enums.AuditResult result) {
+    public void logAction(AuditAction action, String entityType, Long entityId,
+                          Object oldValue, Object newValue, String description, AuditResult result) {
         User currentUser = getCurrentUser();
         logAction(action, entityType, entityId, oldValue, newValue, description, currentUser, result);
     }
 
     @Override
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void logAction(AuditAction action, String entityType, Long entityId, Object oldValue, Object newValue, String description, User performedBy, com.anthony.colasuni.enums.AuditResult result) {
+    public void logAction(AuditAction action, String entityType, Long entityId,
+                          Object oldValue, Object newValue, String description,
+                          User performedBy, AuditResult result) {
         try {
-            String oldValueStr = oldValue != null ? (oldValue instanceof String ? (String) oldValue : objectMapper.writeValueAsString(oldValue)) : null;
-            String newValueStr = newValue != null ? (newValue instanceof String ? (String) newValue : objectMapper.writeValueAsString(newValue)) : null;
-
-            String[] ipAndHost = getClientIpAndHost();
+            String oldValueStr = serialize(oldValue);
+            String newValueStr = serialize(newValue);
 
             AuditLog auditLog = AuditLog.builder()
                     .action(action)
@@ -50,8 +56,7 @@ public class AuditServiceImpl implements AuditService {
                     .performedBy(performedBy)
                     .oldValue(oldValueStr)
                     .newValue(newValueStr)
-                    .ipAddress(ipAndHost[0])
-                    .host(ipAndHost[1])
+                    .ipAddress(getClientIp())
                     .result(result)
                     .description(description)
                     .build();
@@ -68,29 +73,46 @@ public class AuditServiceImpl implements AuditService {
         return auditLogRepository.findAll(pageable).map(AuditMapper::toResponse);
     }
 
-    private String[] getClientIpAndHost() {
-        String ipAddress = "127.0.0.1";
-        String host = "localhost";
+    // ──────────────────────────────────────────────────────────────
+    // Helpers privados
+    // ──────────────────────────────────────────────────────────────
+
+    private String serialize(Object value) {
+        if (value == null) return null;
+        if (value instanceof String s) return s;
         try {
-            org.springframework.web.context.request.RequestAttributes attributes = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
-            if (attributes instanceof org.springframework.web.context.request.ServletRequestAttributes servletAttributes) {
-                jakarta.servlet.http.HttpServletRequest request = servletAttributes.getRequest();
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return value.toString();
+        }
+    }
+
+    /**
+     * Obtiene la IP del cliente HTTP de forma automática desde HttpServletRequest.
+     * Considera cabeceras de proxy (X-Forwarded-For).
+     */
+    private String getClientIp() {
+        try {
+            ServletRequestAttributes attributes =
+                    (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
+            if (attributes != null) {
+                HttpServletRequest request = attributes.getRequest();
                 String ip = request.getHeader("X-Forwarded-For");
                 if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
                     ip = request.getRemoteAddr();
                 } else {
+                    // Si hay múltiples IPs (cadena de proxies) tomar la primera
                     int index = ip.indexOf(',');
                     if (index != -1) {
                         ip = ip.substring(0, index).trim();
                     }
                 }
-                ipAddress = ip;
-                host = request.getRemoteHost();
+                return ip;
             }
         } catch (Exception e) {
-            log.warn("No se pudo obtener la IP y Host del cliente HTTP en auditoría", e);
+            log.warn("No se pudo obtener la IP del cliente en auditoría", e);
         }
-        return new String[]{ipAddress, host};
+        return "127.0.0.1";
     }
 
     private User getCurrentUser() {
@@ -102,5 +124,4 @@ public class AuditServiceImpl implements AuditService {
         }
         return null;
     }
-
 }

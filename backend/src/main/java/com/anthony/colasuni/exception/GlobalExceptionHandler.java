@@ -31,18 +31,65 @@ public class GlobalExceptionHandler {
             String path
     ) {}
 
+    // ──────────────────────────────────────────────────────────────
+    // Excepciones específicas de negocio (con HTTP status propio)
+    // ──────────────────────────────────────────────────────────────
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<ErrorDetails> handleResourceNotFound(
+            ResourceNotFoundException ex, HttpServletRequest request) {
+        return buildError(HttpStatus.NOT_FOUND, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(InvalidStateTransitionException.class)
+    public ResponseEntity<ErrorDetails> handleInvalidTransition(
+            InvalidStateTransitionException ex, HttpServletRequest request) {
+        return buildError(HttpStatus.BAD_REQUEST, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(OperatorBusyException.class)
+    public ResponseEntity<ErrorDetails> handleOperatorBusy(
+            OperatorBusyException ex, HttpServletRequest request) {
+        return buildError(HttpStatus.CONFLICT, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(DuplicateActiveTicketException.class)
+    public ResponseEntity<ErrorDetails> handleDuplicateTicket(
+            DuplicateActiveTicketException ex, HttpServletRequest request) {
+        return buildError(HttpStatus.CONFLICT, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(DuplicateServiceException.class)
+    public ResponseEntity<ErrorDetails> handleDuplicateService(
+            DuplicateServiceException ex, HttpServletRequest request) {
+        return buildError(HttpStatus.CONFLICT, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(DuplicateUsernameException.class)
+    public ResponseEntity<ErrorDetails> handleDuplicateUsername(
+            DuplicateUsernameException ex, HttpServletRequest request) {
+        return buildError(HttpStatus.CONFLICT, ex.getMessage(), request);
+    }
+
+    @ExceptionHandler(UnauthorizedOperationException.class)
+    public ResponseEntity<ErrorDetails> handleUnauthorized(
+            UnauthorizedOperationException ex, HttpServletRequest request) {
+        return buildError(HttpStatus.FORBIDDEN, ex.getMessage(), request);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // BusinessException genérica (captura subclases no listadas arriba)
+    // ──────────────────────────────────────────────────────────────
+
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ErrorDetails> handleBusinessException(
             BusinessException ex, HttpServletRequest request) {
-        ErrorDetails details = new ErrorDetails(
-                LocalDateTime.now(),
-                ex.getStatus().value(),
-                ex.getStatus().getReasonPhrase(),
-                ex.getMessage(),
-                request.getRequestURI()
-        );
-        return new ResponseEntity<>(details, ex.getStatus());
+        return buildError(ex.getStatus(), ex.getMessage(), request);
     }
+
+    // ──────────────────────────────────────────────────────────────
+    // Validaciones Bean Validation (@Valid)
+    // ──────────────────────────────────────────────────────────────
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ValidationErrorDetails> handleValidationException(
@@ -64,16 +111,32 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(details, HttpStatus.BAD_REQUEST);
     }
 
+    // ──────────────────────────────────────────────────────────────
+    // Fallback genérico
+    // ──────────────────────────────────────────────────────────────
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorDetails> handleGenericException(
             Exception ex, HttpServletRequest request) {
+        return buildError(
+                HttpStatus.INTERNAL_SERVER_ERROR,
+                ex.getMessage() != null ? ex.getMessage() : "Error interno del servidor",
+                request
+        );
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Helper
+    // ──────────────────────────────────────────────────────────────
+
+    private ResponseEntity<ErrorDetails> buildError(HttpStatus status, String message, HttpServletRequest request) {
         ErrorDetails details = new ErrorDetails(
                 LocalDateTime.now(),
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                HttpStatus.INTERNAL_SERVER_ERROR.getReasonPhrase(),
-                ex.getMessage() != null ? ex.getMessage() : "Error interno del servidor",
+                status.value(),
+                status.getReasonPhrase(),
+                message,
                 request.getRequestURI()
         );
-        return new ResponseEntity<>(details, HttpStatus.INTERNAL_SERVER_ERROR);
+        return new ResponseEntity<>(details, status);
     }
 }

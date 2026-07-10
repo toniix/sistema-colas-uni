@@ -34,13 +34,13 @@ public class ReportServiceImpl implements ReportService {
         // 1. Calcular resumen general
         long totalTickets = tickets.size();
         long atendidosCount = tickets.stream()
-                .filter(t -> t.getStatus() == TicketStatus.FINALIZADO)
+                .filter(t -> t.getStatus() == TicketStatus.FINISHED)
                 .count();
         long anuladosCount = tickets.stream()
-                .filter(t -> t.getStatus() == TicketStatus.ANULADO)
+                .filter(t -> t.getStatus() == TicketStatus.CANCELLED)
                 .count();
         long enColaCount = tickets.stream()
-                .filter(t -> t.getStatus() == TicketStatus.EN_COLA)
+                .filter(t -> t.getStatus() == TicketStatus.IN_QUEUE)
                 .count();
 
         long totalEsperaMin = tickets.stream()
@@ -79,7 +79,7 @@ public class ReportServiceImpl implements ReportService {
                     long avgServiceWait = serviceWaitCount > 0 ? serviceTotalWait / serviceWaitCount : 0;
 
                     long serviceAttended = serviceTickets.stream()
-                            .filter(t -> t.getStatus() == TicketStatus.FINALIZADO)
+                            .filter(t -> t.getStatus() == TicketStatus.FINISHED)
                             .count();
 
                     return new ServiceWaitMetric(serviceName, avgServiceWait, serviceAttended);
@@ -88,7 +88,7 @@ public class ReportServiceImpl implements ReportService {
 
         // 3. Atendidos por operador
         Map<String, Long> attendedByOperator = tickets.stream()
-                .filter(t -> t.getStatus() == TicketStatus.FINALIZADO && t.getOperator() != null)
+                .filter(t -> t.getStatus() == TicketStatus.FINISHED && t.getOperator() != null)
                 .collect(Collectors.groupingBy(
                         t -> t.getOperator().getFullName(),
                         Collectors.counting()

@@ -4,6 +4,7 @@ import com.anthony.colasuni.dto.user.UserResponse;
 import com.anthony.colasuni.dto.user.UserUpdateRequest;
 import com.anthony.colasuni.entity.User;
 import com.anthony.colasuni.enums.AuditAction;
+import com.anthony.colasuni.enums.AuditResult;
 import com.anthony.colasuni.exception.BusinessException;
 import com.anthony.colasuni.exception.ResourceNotFoundException;
 import com.anthony.colasuni.mapper.UserMapper;
@@ -32,7 +33,7 @@ public class UserServiceImpl implements UserService {
     @Transactional(readOnly = true)
     public UserResponse getUserById(Long id) {
         User user = userRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con ID: " + id));
         return UserMapper.toResponse(user);
     }
 
@@ -40,10 +41,11 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public UserResponse updateUser(Long id, UserUpdateRequest request) {
         User user = userRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con ID: " + id));
 
-        if (!user.getEmail().equalsIgnoreCase(request.getEmail()) && userRepository.existsByEmail(request.getEmail())) {
-            throw new BusinessException("El correo electrónico ya está en uso por otro usuario", HttpStatus.BAD_REQUEST);
+        if (!user.getEmail().equalsIgnoreCase(request.getEmail())
+                && userRepository.existsByEmail(request.getEmail())) {
+            throw new BusinessException("El correo electrónico ya está en uso por otro usuario", HttpStatus.CONFLICT);
         }
 
         User oldUser = User.builder()
@@ -58,7 +60,8 @@ public class UserServiceImpl implements UserService {
 
         User updatedUser = userRepository.save(user);
 
-        auditService.logAction(AuditAction.USER_UPDATED, "User", updatedUser.getId(), oldUser, updatedUser, "Usuario actualizado: " + updatedUser.getUsername(), com.anthony.colasuni.enums.AuditResult.OK);
+        auditService.logAction(AuditAction.UPDATE, "User", updatedUser.getId(),
+                oldUser, updatedUser, "Usuario actualizado: " + updatedUser.getUsername(), AuditResult.OK);
 
         return UserMapper.toResponse(updatedUser);
     }
@@ -67,25 +70,27 @@ public class UserServiceImpl implements UserService {
     @Transactional
     public void deleteUser(Long id) {
         User user = userRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con ID: " + id));
 
         userRepository.delete(user);
-        auditService.logAction(AuditAction.USER_DELETED, "User", id, user, null, "Usuario eliminado: " + user.getUsername(), com.anthony.colasuni.enums.AuditResult.OK);
+        auditService.logAction(AuditAction.DELETE, "User", id,
+                user, null, "Usuario eliminado: " + user.getUsername(), AuditResult.OK);
     }
 
     @Override
     @Transactional
     public UserResponse toggleUserStatus(Long id) {
         User user = userRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
+                .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado con ID: " + id));
 
         boolean oldStatus = user.isEnabled();
         user.setEnabled(!oldStatus);
 
         User updatedUser = userRepository.save(user);
-        auditService.logAction(AuditAction.USER_UPDATED, "User", updatedUser.getId(), "Habilitado: " + oldStatus, "Habilitado: " + !oldStatus, "Cambio de estado de habilitación para: " + updatedUser.getUsername(), com.anthony.colasuni.enums.AuditResult.OK);
+        auditService.logAction(AuditAction.UPDATE, "User", updatedUser.getId(),
+                "Habilitado: " + oldStatus, "Habilitado: " + !oldStatus,
+                "Cambio de estado de habilitación para: " + updatedUser.getUsername(), AuditResult.OK);
 
         return UserMapper.toResponse(updatedUser);
     }
-
 }

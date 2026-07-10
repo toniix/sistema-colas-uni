@@ -9,7 +9,9 @@ import com.anthony.colasuni.dto.user.UserSummaryDTO;
 import com.anthony.colasuni.entity.RefreshToken;
 import com.anthony.colasuni.entity.User;
 import com.anthony.colasuni.enums.AuditAction;
+import com.anthony.colasuni.enums.AuditResult;
 import com.anthony.colasuni.exception.BusinessException;
+import com.anthony.colasuni.exception.DuplicateUsernameException;
 import com.anthony.colasuni.exception.ResourceNotFoundException;
 import com.anthony.colasuni.mapper.UserMapper;
 import com.anthony.colasuni.repository.RefreshTokenRepository;
@@ -46,8 +48,6 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AuthResponse login(LoginRequest request) {
-        System.out.println(request.getUsername());
-        System.out.println(request.getPassword());
         try {
             authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
@@ -65,8 +65,8 @@ public class AuthServiceImpl implements AuthService {
 
             UserSummaryDTO summary = UserMapper.toSummary(user);
 
-            auditService.logAction(AuditAction.LOGIN, "User", user.getId(), null, null, "Inicio de sesión exitoso",
-                    user, com.anthony.colasuni.enums.AuditResult.OK);
+            auditService.logAction(AuditAction.LOGIN, "User", user.getId(),
+                    null, null, "Inicio de sesión exitoso", user, AuditResult.OK);
 
             return AuthResponse.builder()
                     .accessToken(accessToken)
@@ -74,12 +74,15 @@ public class AuthServiceImpl implements AuthService {
                     .expiresIn(jwtService.getExpirationTime())
                     .user(summary)
                     .build();
+
         } catch (Exception ex) {
             User user = userRepository.findByUsername(request.getUsername()).orElse(null);
-            auditService.logAction(AuditAction.LOGIN, "User", user != null ? user.getId() : 0L, null, null,
-                    "Intento de inicio de sesión fallido para: " + request.getUsername() + ". Detalle: "
-                            + ex.getMessage(),
-                    user, com.anthony.colasuni.enums.AuditResult.ERROR);
+            // Usar LOGIN_FAILED para distinguir intentos fallidos de logins exitosos
+            auditService.logAction(AuditAction.LOGIN_FAILED, "User",
+                    user != null ? user.getId() : 0L, null, null,
+                    "Intento de inicio de sesión fallido para: " + request.getUsername()
+                    + ". Detalle: " + ex.getMessage(),
+                    user, AuditResult.ERROR);
             throw ex;
         }
     }
@@ -88,10 +91,10 @@ public class AuthServiceImpl implements AuthService {
     @Transactional
     public UserResponse register(RegisterUserRequest request) {
         if (userRepository.existsByUsername(request.getUsername())) {
-            throw new BusinessException("El nombre de usuario ya existe", HttpStatus.BAD_REQUEST);
+            throw new DuplicateUsernameException("El nombre de usuario ya existe: " + request.getUsername());
         }
         if (userRepository.existsByEmail(request.getEmail())) {
-            throw new BusinessException("El correo electrónico ya existe", HttpStatus.BAD_REQUEST);
+            throw new DuplicateUsernameException("El correo electrónico ya existe: " + request.getEmail());
         }
 
         User user = User.builder()
@@ -103,10 +106,11 @@ public class AuthServiceImpl implements AuthService {
                 .enabled(true)
                 .build();
 
+        @SuppressWarnings("null")
         User savedUser = userRepository.save(user);
 
-        auditService.logAction(AuditAction.USER_CREATED, "User", savedUser.getId(), null, savedUser,
-                "Usuario registrado: " + savedUser.getUsername(), com.anthony.colasuni.enums.AuditResult.OK);
+        auditService.logAction(AuditAction.USER_CREATED, "User", savedUser.getId(),
+                null, savedUser, "Usuario registrado: " + savedUser.getUsername(), AuditResult.OK);
 
         return UserMapper.toResponse(savedUser);
     }
@@ -151,12 +155,13 @@ public class AuthServiceImpl implements AuthService {
             String username = jwtService.extractUsername(token);
             userRepository.findByUsername(username).ifPresent(user -> {
                 refreshTokenRepository.deleteByUser_Id(user.getId());
-                auditService.logAction(AuditAction.LOGOUT, "User", user.getId(), null, null, "Cierre de sesión exitoso",
-                        user, com.anthony.colasuni.enums.AuditResult.OK);
+                auditService.logAction(AuditAction.LOGOUT, "User", user.getId(),
+                        null, null, "Cierre de sesión exitoso", user, AuditResult.OK);
             });
         }
     }
 
+    @SuppressWarnings("null")
     private RefreshToken createRefreshToken(User user) {
         RefreshToken refreshToken = RefreshToken.builder()
                 .user(user)
@@ -164,7 +169,6 @@ public class AuthServiceImpl implements AuthService {
                 .expiryDate(LocalDateTime.now().plusNanos(refreshExpirationMs * 1_000_000))
                 .revoked(false)
                 .build();
-
         return refreshTokenRepository.save(refreshToken);
     }
 }
