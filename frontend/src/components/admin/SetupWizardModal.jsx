@@ -1,24 +1,37 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useBranding } from '../../context/BrandingContext'
 import { IconBuilding, IconPhoto, IconDeviceFloppy, IconChevronRight, IconChevronLeft, IconUpload, IconSparkles } from '@tabler/icons-react'
 import Button from '../ui/Button'
 import { TextInput } from '../ui/Input'
 
 export default function SetupWizardModal() {
-  const { configured, universityName, systemName, logoBase64, coverBase64, updateBranding } = useBranding()
+  const { configured, loading: loadingBranding, universityName, systemName, logoBase64, coverBase64, updateBranding } = useBranding()
   
-  // Solo se abre automáticamente si no está configurado
-  const [isOpen, setIsOpen] = useState(!configured)
+  // Solo se abre automáticamente si no está configurado y ya se cargó el estado
+  const [isOpen, setIsOpen] = useState(false)
+  const [hasInitialized, setHasInitialized] = useState(false)
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
 
   // Estados del formulario
-  const [formUniversity, setFormUniversity] = useState(universityName)
-  const [formSystem, setFormSystem] = useState(systemName)
-  const [logo, setLogo] = useState(logoBase64)
-  const [cover, setCover] = useState(coverBase64)
+  const [formUniversity, setFormUniversity] = useState('')
+  const [formSystem, setFormSystem] = useState('')
+  const [logo, setLogo] = useState(null)
+  const [cover, setCover] = useState(null)
 
-  if (!isOpen) return null
+  // Inicializar estados una vez que la carga de branding termine
+  useEffect(() => {
+    if (!loadingBranding && !hasInitialized) {
+      setIsOpen(!configured)
+      setFormUniversity(universityName || '')
+      setFormSystem(systemName || '')
+      setLogo(logoBase64 || null)
+      setCover(coverBase64 || null)
+      setHasInitialized(true)
+    }
+  }, [loadingBranding, configured, universityName, systemName, logoBase64, coverBase64, hasInitialized])
+
+  if (loadingBranding || !isOpen) return null
 
   const handleFileChange = (e, setFileState) => {
     const file = e.target.files?.[0]
