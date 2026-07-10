@@ -3,21 +3,13 @@
 // - Ante un 401, intenta rotar el token con /api/auth/refresh y reintenta 1 vez.
 // - Traduce el esquema de error del backend a un Error con mensaje legible.
 import { getAuth, setAuth, notifyExpired } from '../auth/tokenStore'
-import { handleMockRequest } from './mockData'
-
-let isMockMode = localStorage.getItem('colasuni.use_mock') === 'true'
 
 export function getMockMode() {
-  return isMockMode
+  return false
 }
 
 export function setMockMode(value) {
-  isMockMode = value
-  if (value) {
-    localStorage.setItem('colasuni.use_mock', 'true')
-  } else {
-    localStorage.removeItem('colasuni.use_mock')
-  }
+  // Sin comportamiento: modo Mock desactivado
 }
 
 export const API_URL =
@@ -86,8 +78,6 @@ function refreshToken() {
  * De lo contrario, retorna el token existente.
  */
 export async function garantizarTokenValido() {
-  if (isMockMode) return 'mock-token'
-  
   const auth = getAuth()
   if (!auth?.accessToken) return null
 
@@ -121,46 +111,25 @@ async function rawRequest(path, { method = 'GET', body, auth = true, token } = {
 }
 
 export async function request(path, opts = {}) {
-  if (isMockMode) {
-    return handleMockRequest(path, opts)
+  let res = await rawRequest(path, opts)
+
+  // Token vencido: rotamos y reintentamos una sola vez.
+  if (res.status === 401 && opts.auth !== false && !opts._retried) {
+    try {
+      const newToken = await refreshToken()
+      res = await rawRequest(path, { ...opts, token: newToken, _retried: true })
+    } catch {
+      notifyExpired()
+      throw new ApiError('Tu sesión expiró. Inicia sesión nuevamente.', 401)
+    }
   }
 
-  try {
-    let res = await rawRequest(path, opts)
+  if (res.status === 204) return null
+  if (!res.ok) throw await toApiError(res)
+  if (res.status === 205) return null
 
-    // Token vencido: rotamos y reintentamos una sola vez.
-    if (res.status === 401 && opts.auth !== false && !opts._retried) {
-      try {
-        const newToken = await refreshToken()
-        res = await rawRequest(path, { ...opts, token: newToken, _retried: true })
-      } catch {
-        notifyExpired()
-        throw new ApiError('Tu sesión expiró. Inicia sesión nuevamente.', 401)
-      }
-    }
-
-    if (res.status === 204) return null
-    if (!res.ok) throw await toApiError(res)
-    if (res.status === 205) return null
-
-    const text = await res.text()
-    return text ? JSON.parse(text) : null
-  } catch (error) {
-    const isNetworkError =
-      error instanceof TypeError ||
-      error.message?.includes('Failed to fetch') ||
-      error.name === 'TypeError' ||
-      error.message?.includes('NetworkError') ||
-      error.message?.includes('Network request failed')
-
-    if (isNetworkError && !isMockMode) {
-      console.warn('Conexión con backend fallida. Activando modo Mock de forma automática.')
-      setMockMode(true)
-      window.dispatchEvent(new CustomEvent('colasuni:backend-offline'))
-      return handleMockRequest(path, opts)
-    }
-    throw error
-  }
+  const text = await res.text()
+  return text ? JSON.parse(text) : null
 }
 
 export const http = {

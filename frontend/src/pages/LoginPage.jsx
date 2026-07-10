@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { IconLock, IconUser, IconAlertTriangle } from '@tabler/icons-react'
 import { useAuth } from '../auth/AuthContext'
 import { useBranding } from '../context/BrandingContext'
-import { getMockMode, setMockMode } from '../api/http'
 import { rutaInicioPorRol } from '../lib/rutas'
 import Brand from '../components/Brand'
 import Button from '../components/ui/Button'
@@ -23,7 +22,6 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-  const [isMock, setIsMock] = useState(() => getMockMode())
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -48,28 +46,7 @@ export default function LoginPage() {
   const { universityName, systemName, coverBase64 } = useBranding()
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col">
-      {isMock && (
-        <div className="bg-amber-500 text-white px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center justify-between shadow-sm animate-pulse w-full z-10 shrink-0">
-          <div className="flex items-center gap-2">
-            <IconAlertTriangle className="w-5 h-5 shrink-0" />
-            <span>Modo de Pruebas Activo (Mock Data) — Usando base de datos simulada local.</span>
-          </div>
-          <button 
-            type="button"
-            onClick={() => {
-              setMockMode(false)
-              setIsMock(false)
-              window.location.reload()
-            }}
-            className="ml-4 bg-amber-700 hover:bg-amber-800 text-white px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shrink-0"
-          >
-            Conectar al Servidor
-          </button>
-        </div>
-      )}
-
-      <div className="flex-1 flex flex-col md:flex-row">
+    <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
       {/* Panel Izquierdo: Branding (Oculto en móviles muy pequeños si es necesario, pero visible en general) */}
       <div 
         className="hidden md:flex md:w-1/2 bg-gradient-to-tr from-indigo-950 via-indigo-900 to-indigo-800 text-white flex-col justify-between p-12 relative overflow-hidden"
@@ -199,6 +176,5 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
-  </div>
-)
+  )
 }

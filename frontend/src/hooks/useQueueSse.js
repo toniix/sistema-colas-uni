@@ -1,6 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react'
-import { API_URL, garantizarTokenValido, getMockMode } from '../api/http'
-import { subscribeMockSse } from '../api/mockData'
+import { API_URL, garantizarTokenValido } from '../api/http'
 
 /**
  * Hook para suscribirse al stream SSE de la cola de un servicio.
@@ -29,15 +28,6 @@ export function useQueueSse(serviceId, onMessage, { isPublic = false, isGlobal =
     abortRef.current?.abort()
     abortRef.current = new AbortController()
     const signal = abortRef.current.signal
-
-    if (getMockMode()) {
-      const unsubscribe = subscribeMockSse(serviceId, (eventType, payload) => {
-        onMessageRef.current(eventType, payload)
-      }, isGlobal)
-      
-      signal.addEventListener('abort', unsubscribe)
-      return
-    }
 
     if (isPublic) {
       // PantallaPage: Conexión mediante EventSource nativo al endpoint público (sin JWT)

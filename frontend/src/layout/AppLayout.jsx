@@ -13,30 +13,12 @@ import { NAV } from './navConfig'
 import Brand from '../components/Brand'
 import Dropdown, { DropdownItem } from '../components/ui/Dropdown'
 import { useNotification } from '../hooks/useNotification'
-import { getMockMode, setMockMode } from '../api/http'
 
 export default function AppLayout() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
-  
-  const { showNotification } = useNotification()
-  const [isMock, setIsMock] = useState(() => getMockMode())
-
-  useEffect(() => {
-    const handleOffline = () => {
-      setIsMock(true)
-      showNotification({
-        title: 'Servidor no disponible',
-        message: 'Se ha cambiado automáticamente al modo de pruebas (Mock Data) con base de datos local.',
-        color: 'yellow',
-        icon: <IconAlertTriangle className="w-5 h-5" />
-      })
-    }
-    window.addEventListener('colasuni:backend-offline', handleOffline)
-    return () => window.removeEventListener('colasuni:backend-offline', handleOffline)
-  }, [showNotification])
 
   const items = NAV[user.rol] || []
   const initials = user.nombre
@@ -57,25 +39,6 @@ export default function AppLayout() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      {isMock && (
-        <div className="bg-amber-500 text-white px-4 py-2.5 text-xs sm:text-sm font-bold flex items-center justify-between shadow-sm animate-pulse shrink-0">
-          <div className="flex items-center gap-2">
-            <IconAlertTriangle className="w-5 h-5 shrink-0 text-white" />
-            <span>Modo de Pruebas Activo (Mock Data) — El servidor backend no responde. Los datos se persistirán temporalmente en este navegador.</span>
-          </div>
-          <button 
-            onClick={() => {
-              setMockMode(false)
-              setIsMock(false)
-              window.location.reload()
-            }}
-            className="ml-4 bg-amber-700 hover:bg-amber-800 text-white px-3 py-1 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shrink-0"
-          >
-            Reconectar
-          </button>
-        </div>
-      )}
-
       {/* Header */}
       <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm h-16 flex items-center justify-between px-4 sm:px-6">
         <div className="flex items-center gap-3">
