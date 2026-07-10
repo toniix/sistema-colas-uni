@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { 
   IconTicket, 
   IconUserCheck, 
@@ -57,14 +57,32 @@ export default function DashboardPage() {
     }
   }, [])
 
+  const debounceTimerRef = useRef(null)
+
+  // Recarga con antirrebote (debounce) para agrupar múltiples ráfagas de eventos de SSE
+  // (por ejemplo, al conectar inicialmente o tras reconexiones en la nube)
+  const refrescarConDebounce = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      cargarDatos()
+    }, 600) // Consolidar ráfagas de eventos en un único llamado tras 600ms
+  }, [cargarDatos])
+
   useEffect(() => {
     cargarDatos().finally(() => setLoading(false))
+    
+    // Limpiar el temporizador al desmontar
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current)
+      }
+    }
   }, [cargarDatos])
 
   // Suscribir el dashboard a los eventos SSE globales para refrescar cuando haya actividad
-  useQueueSse(null, () => {
-    cargarDatos()
-  }, { isPublic: true, isGlobal: true })
+  useQueueSse(null, refrescarConDebounce, { isPublic: true, isGlobal: true })
 
   const prettyAccion = (a = '') =>
     a
