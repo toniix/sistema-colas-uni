@@ -7,22 +7,23 @@ export default function Dropdown({
   align = 'right', // left, right
   className = '',
 }) {
-  const alignments = {
-    left: 'left-0 origin-top-left',
-    right: 'right-0 origin-top-right',
+  // Con anchor, Headless UI v2 posiciona el panel fuera del flujo del DOM
+  // (similar a un portal) y lo abre hacia arriba si no hay espacio abajo.
+  const anchorMap = {
+    right: 'bottom end',
+    left: 'bottom start',
   }
 
   return (
     <Menu as="div" className={`relative inline-block text-left ${className}`}>
-      <div>
-        <MenuButton className="inline-flex justify-center items-center rounded-lg focus:outline-none cursor-pointer">
-          {trigger}
-        </MenuButton>
-      </div>
+      <MenuButton className="inline-flex justify-center items-center rounded-lg focus:outline-none cursor-pointer">
+        {trigger}
+      </MenuButton>
 
       <MenuItems
         transition
-        className={`absolute mt-1.5 w-48 rounded-xl border border-slate-100 bg-white p-1.5 shadow-lg focus:outline-none z-30 transition-all duration-100 ease-out data-[closed]:scale-95 data-[closed]:opacity-0 ${alignments[align]}`}
+        anchor={anchorMap[align]}
+        className="w-48 rounded-xl border border-slate-100 bg-white p-1.5 shadow-xl focus:outline-none z-50 transition-all duration-100 ease-out data-[closed]:scale-95 data-[closed]:opacity-0 [--anchor-gap:6px]"
       >
         {children}
       </MenuItems>

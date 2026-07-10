@@ -10,7 +10,7 @@ import {
 import { useAuth } from '../auth/AuthContext'
 import { ROL_LABEL } from '../lib/constants'
 import { NAV } from './navConfig'
-import Brand from '../components/Brand'
+import Brand, { KhipuIcon } from '../components/Brand'
 import Dropdown, { DropdownItem } from '../components/ui/Dropdown'
 import { useNotification } from '../hooks/useNotification'
 
@@ -85,12 +85,12 @@ export default function AppLayout() {
       {/* Main Container */}
       <div className="flex-1 flex relative">
         {/* Sidebar Desktop */}
-        <aside className="hidden sm:flex flex-col w-64 bg-indigo-800 text-white shrink-0 border-r border-indigo-900 shadow-xl">
+        <aside className="hidden sm:flex flex-col w-64 bg-indigo-800 text-white shrink-0 border-r border-indigo-900 shadow-xl sticky top-16 h-[calc(100vh-4rem)]">
           <div className="p-5 border-b border-indigo-900">
             <Brand size="md" dark />
           </div>
           
-          <nav className="flex-1 p-4 flex flex-col gap-1 overflow-y-auto no-scrollbar">
+          <nav className="flex-1 p-4 flex flex-col gap-1 overflow-y-hidden">
             {items.map((item) => {
               const active =
                 location.pathname === item.to ||
@@ -118,9 +118,12 @@ export default function AppLayout() {
           </nav>
 
           {/* Footer Info */}
-          <div className="p-4 bg-indigo-950/40 border-t border-indigo-900 text-center flex flex-col gap-0.5">
+          <div className="p-4 bg-indigo-950/40 border-t border-indigo-900 flex flex-col items-center gap-1.5 text-center">
             <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest">{universityName}</p>
-            <p className="text-[9px] text-indigo-400">QueueFlow v1.0.0</p>
+            <div className="flex items-center gap-1.5 opacity-70 hover:opacity-100 transition-opacity">
+              <KhipuIcon size="xs" />
+              <span className="text-[9px] font-black text-white tracking-widest uppercase">Khipu</span>
+            </div>
           </div>
         </aside>
 
@@ -145,7 +148,7 @@ export default function AppLayout() {
                 </button>
               </div>
 
-              <nav className="flex-1 p-4 flex flex-col gap-1 overflow-y-auto no-scrollbar">
+              <nav className="flex-1 p-4 flex flex-col gap-1 overflow-y-hidden">
                 {items.map((item) => {
                   return (
                     <NavLink
@@ -169,9 +172,12 @@ export default function AppLayout() {
                 })}
               </nav>
 
-              <div className="p-4 bg-indigo-950/40 border-t border-indigo-900 text-center flex flex-col gap-0.5">
+              <div className="p-4 bg-indigo-950/40 border-t border-indigo-900 flex flex-col items-center gap-1.5 text-center">
                 <p className="text-[10px] font-bold text-indigo-300 uppercase tracking-widest">{universityName}</p>
-                <p className="text-[9px] text-indigo-400">QueueFlow v1.0.0</p>
+                <div className="flex items-center gap-1.5 opacity-70 hover:opacity-100 transition-opacity">
+                  <KhipuIcon size="xs" />
+                  <span className="text-[9px] font-black text-white tracking-widest uppercase">Khipu</span>
+                </div>
               </div>
             </aside>
           </div>

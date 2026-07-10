@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { IconAlertTriangle, IconArrowRight, IconSearch } from '@tabler/icons-react'
+import { IconAlertTriangle, IconArrowRight, IconSearch, IconEye } from '@tabler/icons-react'
 import * as api from '../../api/client'
 import { fmtFechaHora } from '../../lib/format'
 import PageHeader from '../../components/PageHeader'
@@ -7,6 +7,7 @@ import Card from '../../components/ui/Card'
 import Badge from '../../components/ui/Badge'
 import { TextInput, Select } from '../../components/ui/Input'
 import Button from '../../components/ui/Button'
+import Modal from '../../components/ui/Modal'
 import { useNotification } from '../../hooks/useNotification'
 import EmptyState from '../../components/EmptyState'
 
@@ -25,6 +26,21 @@ const prettyAccion = (a = '') =>
     .replace(/_/g, ' ')
     .replace(/^\w/, (c) => c.toUpperCase())
 
+const parseIfJson = (val) => {
+  if (!val) return null
+  const trimmed = String(val).trim()
+  if (!((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']')))) {
+    return null
+  }
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (parsed && typeof parsed === 'object') {
+      return parsed
+    }
+  } catch (e) {}
+  return null
+}
+
 export default function AuditoriaPage() {
   const { showNotification } = useNotification()
   const [registros, setRegistros] = useState([])
@@ -33,12 +49,17 @@ export default function AuditoriaPage() {
   const [page, setPage] = useState(0)
   const [pageSize] = useState(20)
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
   
   // Filtros
   const [q, setQ] = useState('')
   const [accion, setAccion] = useState('')
   const [accionesUnicas, setAccionesUnicas] = useState([])
+
+  // Modal Detalles
+  const [detalleOpen, setDetalleOpen] = useState(false)
+  const [registroSeleccionado, setRegistroSeleccionado] = useState(null)
 
   const cargar = useCallback(async () => {
     setLoading(true)
@@ -80,13 +101,20 @@ export default function AuditoriaPage() {
     })
   }, [registros, q, accion])
 
-  function exportarAuditoria() {
+  async function exportarAuditoria() {
+    setExporting(true)
     try {
-      const headers = ['Fecha/Hora', 'Usuario', 'Rol', 'Acción', 'Detalle', 'Entidad', 'Valor Anterior', 'Valor Nuevo']
-      const rows = registros.map((r) => [
+      // Fetch all audit entries for complete export
+      const limit = totalElements || 1000
+      const data = await api.listAuditoria({ page: 0, size: limit, sort: 'createdAt,desc' })
+      const todosLosRegistros = data.items || []
+
+      const headers = ['Fecha/Hora', 'Usuario', 'Rol', 'Dirección IP', 'Acción', 'Detalle', 'Entidad', 'Valor Anterior', 'Valor Nuevo']
+      const rows = todosLosRegistros.map((r) => [
         fmtFechaHora(r.timestamp),
         r.usuario,
         r.usuarioRol || '—',
+        r.ipAddress || '—',
         r.accion,
         r.detalle || '',
         r.entidad ? `${r.entidad} #${r.entidadId || ''}` : '',
@@ -95,21 +123,30 @@ export default function AuditoriaPage() {
       ])
 
       const csvContent = 
-        'data:text/csv;charset=utf-8,\uFEFF' + 
-        [headers.join(','), ...rows.map(e => e.map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))].join('\n')
+        '\uFEFF' + 
+        [headers.join(','), ...rows.map(e => e.map(val => `"${String(val ?? '').replace(/"/g, '""')}"`).join(','))].join('\n')
       
-      const encodedUri = encodeURI(csvContent)
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
-      link.setAttribute('href', encodedUri)
+      link.setAttribute('href', url)
       link.setAttribute('download', `auditoria_colas_${new Date().toISOString().split('T')[0]}.csv`)
       document.body.appendChild(link)
       link.click()
       document.body.removeChild(link)
+      URL.revokeObjectURL(url)
 
-      showNotification({ message: 'Bitácora exportada con éxito', color: 'green' })
+      showNotification({ message: `Exportación completa con éxito (${todosLosRegistros.length} registros)`, color: 'green' })
     } catch (e) {
       showNotification({ title: 'Error al exportar', message: e.message, color: 'red' })
+    } finally {
+      setExporting(false)
     }
+  }
+
+  const abrirDetalles = (r) => {
+    setRegistroSeleccionado(r)
+    setDetalleOpen(true)
   }
 
   if (error && registros.length === 0) {
@@ -132,7 +169,7 @@ export default function AuditoriaPage() {
         title="Auditoría"
         subtitle="Registro de acciones del sistema (turnos, usuarios, sesiones)."
         actions={
-          <Button variant="outline" onClick={exportarAuditoria}>
+          <Button variant="outline" onClick={exportarAuditoria} loading={exporting}>
             Exportar CSV
           </Button>
         }
@@ -192,49 +229,68 @@ export default function AuditoriaPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
-                  {filtrados.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="py-4 px-6 text-slate-400 font-semibold whitespace-nowrap">
-                        {fmtFechaHora(r.timestamp)}
-                      </td>
-                      <td className="py-4 px-6 whitespace-nowrap">
-                        <p className="font-bold text-slate-800">@{r.usuario}</p>
-                        {r.usuarioRol && (
-                          <span className="text-[10px] text-slate-400 font-semibold block mt-0.5">
-                            {r.usuarioRol}
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-4 px-6">
-                        <Badge color={colorAccion(r.accion)} size="sm">
-                          {prettyAccion(r.accion)}
-                        </Badge>
-                      </td>
-                      <td className="py-4 px-6 max-w-xs md:max-w-sm">
-                        <p className="font-semibold text-slate-700 leading-relaxed mb-0.5">{r.detalle || '—'}</p>
-                        {r.entidad && (
-                          <span className="text-[10px] text-slate-400 font-bold block mt-0.5">
-                            {r.entidad} {r.entidadId ? `#${r.entidadId}` : ''}
-                          </span>
-                        )}
-                      </td>
-                      <td className="py-4 px-6 whitespace-nowrap">
-                        {r.valorAnterior || r.valorNuevo ? (
-                          <div className="flex items-center gap-2 text-slate-400 font-mono">
-                            <span className="bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded text-slate-500">
-                              {r.valorAnterior || '—'}
-                            </span>
-                            <IconArrowRight className="w-3.5 h-3.5" />
-                            <span className="bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded text-indigo-700 font-bold">
-                              {r.valorNuevo || '—'}
-                            </span>
+                  {filtrados.map((r) => {
+                    const isJsonVal = parseIfJson(r.valorAnterior) || parseIfJson(r.valorNuevo)
+                    return (
+                      <tr key={r.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="py-4 px-6 text-slate-400 font-semibold whitespace-nowrap">
+                          {fmtFechaHora(r.timestamp)}
+                        </td>
+                        <td className="py-4 px-6 whitespace-nowrap">
+                          <p className="font-bold text-slate-800">@{r.usuario}</p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {r.usuarioRol && (
+                              <span className="text-[10px] text-slate-400 font-semibold block">
+                                {r.usuarioRol}
+                              </span>
+                            )}
+                            {r.usuarioRol && r.ipAddress && r.ipAddress !== '—' && <span className="text-[10px] text-slate-300">•</span>}
+                            {r.ipAddress && r.ipAddress !== '—' && (
+                              <span className="text-[10px] text-indigo-400 font-semibold block font-mono">
+                                {r.ipAddress}
+                              </span>
+                            )}
                           </div>
-                        ) : (
-                          <span className="text-slate-400">—</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        <td className="py-4 px-6">
+                          <Badge color={colorAccion(r.accion)} size="sm">
+                            {prettyAccion(r.accion)}
+                          </Badge>
+                        </td>
+                        <td className="py-4 px-6 max-w-xs md:max-w-sm">
+                          <p className="font-semibold text-slate-700 leading-relaxed mb-0.5">{r.detalle || '—'}</p>
+                          {r.entidad && (
+                            <span className="text-[10px] text-slate-400 font-bold block mt-0.5">
+                              {r.entidad} {r.entidadId ? `#${r.entidadId}` : ''}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-4 px-6 whitespace-nowrap">
+                          {isJsonVal ? (
+                            <button
+                              onClick={() => abrirDetalles(r)}
+                              className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold border border-indigo-100 rounded-lg text-[10px] cursor-pointer transition-colors flex items-center gap-1.5"
+                            >
+                              <IconEye className="w-3.5 h-3.5" />
+                              Ver cambios objeto
+                            </button>
+                          ) : r.valorAnterior || r.valorNuevo ? (
+                            <div className="flex items-center gap-2 text-slate-400 font-mono">
+                              <span className="bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded text-slate-500 max-w-[120px] truncate block">
+                                {r.valorAnterior || '—'}
+                              </span>
+                              <IconArrowRight className="w-3.5 h-3.5" />
+                              <span className="bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded text-indigo-700 font-bold max-w-[120px] truncate block">
+                                {r.valorNuevo || '—'}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-400">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
@@ -268,6 +324,142 @@ export default function AuditoriaPage() {
           )}
         </div>
       )}
+
+      {/* Modal Detalle de Auditoría */}
+      <DetalleAuditoriaModal opened={detalleOpen} onClose={() => setDetalleOpen(false)} registro={registroSeleccionado} />
     </div>
   )
 }
+
+function DetalleAuditoriaModal({ opened, onClose, registro }) {
+  const parsedAnterior = useMemo(() => parseIfJson(registro?.valorAnterior), [registro?.valorAnterior])
+  const parsedNuevo = useMemo(() => parseIfJson(registro?.valorNuevo), [registro?.valorNuevo])
+
+  // Obtener todas las propiedades únicas ordenadas
+  const propiedades = useMemo(() => {
+    if (!parsedAnterior && !parsedNuevo) return []
+    const keys = Array.from(new Set([
+      ...Object.keys(parsedAnterior || {}),
+      ...Object.keys(parsedNuevo || {})
+    ])).sort()
+    return keys
+  }, [parsedAnterior, parsedNuevo])
+
+  if (!registro) return null
+
+  const isJsonType = parsedAnterior || parsedNuevo
+
+  return (
+    <Modal opened={opened} onClose={onClose} title="Detalle de Auditoría" size="lg">
+      <div className="flex flex-col gap-4 max-h-[70vh] overflow-y-auto pr-1">
+        {/* Metadatos Generales */}
+        <div className="grid grid-cols-2 gap-4 bg-slate-50 border border-slate-100 p-4 rounded-xl text-xs">
+          <div>
+            <p className="text-slate-400 font-semibold mb-1 uppercase tracking-wider text-[9px]">Usuario / Rol</p>
+            <p className="font-bold text-slate-800">@{registro.usuario} ({registro.usuarioRol || '—'})</p>
+          </div>
+          <div>
+            <p className="text-slate-400 font-semibold mb-1 uppercase tracking-wider text-[9px]">Fecha y Hora</p>
+            <p className="font-bold text-slate-800">{fmtFechaHora(registro.timestamp)}</p>
+          </div>
+          <div>
+            <p className="text-slate-400 font-semibold mb-1 uppercase tracking-wider text-[9px]">Acción</p>
+            <Badge color={colorAccion(registro.accion)} size="sm">
+              {prettyAccion(registro.accion)}
+            </Badge>
+          </div>
+          <div>
+            <p className="text-slate-400 font-semibold mb-1 uppercase tracking-wider text-[9px]">Dirección IP</p>
+            <p className="font-bold text-slate-800 font-mono">{registro.ipAddress || '—'}</p>
+          </div>
+          <div className="col-span-2 border-t border-slate-200/60 pt-3">
+            <p className="text-slate-400 font-semibold mb-1 uppercase tracking-wider text-[9px]">Entidad Relacionada</p>
+            <p className="font-bold text-slate-800">
+              {registro.entidad ? `${registro.entidad} #${registro.entidadId || ''}` : '—'}
+            </p>
+          </div>
+          <div className="col-span-2 border-t border-slate-200/60 pt-3">
+            <p className="text-slate-400 font-semibold mb-1 uppercase tracking-wider text-[9px]">Descripción del Suceso</p>
+            <p className="font-medium text-slate-700 leading-normal">{registro.detalle || '—'}</p>
+          </div>
+        </div>
+
+        {/* Comparativa de Cambios */}
+        <div className="flex flex-col gap-2.5">
+          <h4 className="text-xs font-bold text-slate-700 uppercase tracking-wider">Detalles del Cambio</h4>
+          
+          {isJsonType ? (
+            <div className="border border-slate-200 rounded-xl overflow-hidden shadow-xs max-h-64 overflow-y-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-100/80 border-b border-slate-200 text-slate-500 font-bold uppercase text-[9px] tracking-wider sticky top-0 z-10">
+                    <th className="py-2.5 px-4 w-1/3 bg-slate-100">Propiedad</th>
+                    <th className="py-2.5 px-4 w-1/3 bg-slate-100">Valor Anterior</th>
+                    <th className="py-2.5 px-4 w-1/3 bg-slate-100">Valor Nuevo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-mono">
+                  {propiedades.map((prop) => {
+                    const valAnt = parsedAnterior ? parsedAnterior[prop] : undefined
+                    const valNue = parsedNuevo ? parsedNuevo[prop] : undefined
+                    
+                    const formatVal = (v) => {
+                      if (v === undefined || v === null) return <span className="text-slate-400">—</span>
+                      if (typeof v === 'boolean') return v ? 'true' : 'false'
+                      if (typeof v === 'object') return JSON.stringify(v)
+                      return String(v)
+                    }
+
+                    const stringAnt = String(valAnt ?? '')
+                    const stringNue = String(valNue ?? '')
+                    const hasChanged = stringAnt !== stringNue
+
+                    return (
+                      <tr 
+                        key={prop} 
+                        className={`hover:bg-slate-50/50 transition-colors ${hasChanged ? 'bg-amber-50/20' : ''}`}
+                      >
+                        <td className="py-2.5 px-4 font-bold text-slate-700">{prop}</td>
+                        <td className={`py-2.5 px-4 truncate max-w-[180px] ${hasChanged && valAnt !== undefined ? 'text-rose-600 font-semibold' : 'text-slate-500'}`}>
+                          {formatVal(valAnt)}
+                        </td>
+                        <td className={`py-2.5 px-4 truncate max-w-[180px] ${hasChanged && valNue !== undefined ? 'text-emerald-700 font-bold' : 'text-slate-800'}`}>
+                          {formatVal(valNue)}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Valor Anterior</span>
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3 font-mono text-xs text-slate-600 min-h-[4rem] whitespace-pre-wrap">
+                    {registro.valorAnterior || '—'}
+                  </div>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase">Valor Nuevo</span>
+                  <div className="bg-indigo-50/40 border border-indigo-100 rounded-xl p-3 font-mono text-xs text-indigo-900 min-h-[4rem] whitespace-pre-wrap font-semibold">
+                    {registro.valorNuevo || '—'}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Acciones del Modal */}
+        <div className="flex justify-end mt-2">
+          <Button onClick={onClose}>
+            Cerrar Detalles
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+

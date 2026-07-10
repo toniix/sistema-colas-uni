@@ -1,4 +1,10 @@
-import React, { createContext, useContext, useState, useCallback } from 'react'
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react'
+import {
+  IconCheck,
+  IconInfoCircle,
+  IconAlertTriangle,
+  IconX,
+} from '@tabler/icons-react'
 
 const NotificationContext = createContext(null)
 
@@ -7,21 +13,22 @@ export function NotificationProvider({ children }) {
 
   const show = useCallback((notification) => {
     const id = Math.random().toString(36).substring(2, 9)
+    const duration = notification.duration ?? 4000
     const newNotification = {
       id,
       title: notification.title,
       message: notification.message,
-      color: notification.color || 'blue', // blue, green, red, yellow
+      color: notification.color || 'blue', // blue, green, red, yellow, gray
       icon: notification.icon,
-      duration: notification.duration ?? 4000,
+      duration,
     }
 
     setNotifications((prev) => [...prev, newNotification])
 
-    if (newNotification.duration > 0) {
+    if (duration > 0) {
       setTimeout(() => {
         dismiss(id)
-      }, newNotification.duration)
+      }, duration)
     }
   }, [])
 
@@ -66,9 +73,6 @@ export function useNotification() {
 // but for React it's best to use context. To allow simple compatibility for notifications.show:
 export const notifications = {
   show: (opts) => {
-    // Note: this global notifications object is a fallback.
-    // In our components we will use the hook `useNotification` where possible,
-    // or we can dispatch a custom event to show it dynamically.
     const event = new CustomEvent('app-notification', { detail: opts })
     window.dispatchEvent(event)
   }
@@ -78,7 +82,7 @@ export const notifications = {
 export function NotificationListener() {
   const { showNotification } = useNotification()
 
-  React.useEffect(() => {
+  useEffect(() => {
     const handleNotification = (e) => {
       showNotification(e.detail)
     }
@@ -91,7 +95,7 @@ export function NotificationListener() {
 
 function NotificationContainer({ notifications, onDismiss }) {
   return (
-    <div className="fixed top-4 right-4 z-50 flex flex-col gap-2 w-full max-w-sm pointer-events-none">
+    <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-3 w-full max-w-sm pointer-events-none sm:bottom-6 sm:right-6">
       {notifications.map((n) => (
         <NotificationItem key={n.id} notification={n} onDismiss={onDismiss} />
       ))}
@@ -100,44 +104,97 @@ function NotificationContainer({ notifications, onDismiss }) {
 }
 
 function NotificationItem({ notification, onDismiss }) {
-  const { id, title, message, color, icon } = notification
+  const { id, title, message, color, icon, duration } = notification
+  const [progress, setProgress] = useState(100)
 
-  const colorClasses = {
-    green: 'bg-emerald-50 border-emerald-200 text-emerald-800',
-    red: 'bg-rose-50 border-rose-200 text-rose-800',
-    yellow: 'bg-amber-50 border-amber-200 text-amber-800',
-    blue: 'bg-sky-50 border-sky-200 text-sky-800',
-    gray: 'bg-slate-50 border-slate-200 text-slate-800',
+  useEffect(() => {
+    if (duration <= 0) return
+    const step = 20 // Actualizar cada 20ms
+    const totalSteps = duration / step
+    let currentStep = 0
+
+    const timer = setInterval(() => {
+      currentStep++
+      setProgress(Math.max(0, 100 - (currentStep / totalSteps) * 100))
+    }, step)
+
+    return () => clearInterval(timer)
+  }, [duration])
+
+  const config = {
+    green: {
+      bg: 'bg-emerald-50/95 border-emerald-100/80 text-emerald-900',
+      border: 'border-emerald-200/60',
+      progressBg: 'bg-emerald-500',
+      defaultIcon: <IconCheck className="w-5 h-5" />,
+      iconColor: 'text-emerald-600 bg-emerald-100/70',
+    },
+    red: {
+      bg: 'bg-rose-50/95 border-rose-100/80 text-rose-900',
+      border: 'border-rose-200/60',
+      progressBg: 'bg-rose-500',
+      defaultIcon: <IconAlertTriangle className="w-5 h-5" />,
+      iconColor: 'text-rose-600 bg-rose-100/70',
+    },
+    yellow: {
+      bg: 'bg-amber-50/95 border-amber-100/80 text-amber-900',
+      border: 'border-amber-200/60',
+      progressBg: 'bg-amber-500',
+      defaultIcon: <IconAlertTriangle className="w-5 h-5" />,
+      iconColor: 'text-amber-600 bg-amber-100/70',
+    },
+    blue: {
+      bg: 'bg-indigo-50/95 border-indigo-100/80 text-indigo-900',
+      border: 'border-indigo-200/60',
+      progressBg: 'bg-indigo-500',
+      defaultIcon: <IconInfoCircle className="w-5 h-5" />,
+      iconColor: 'text-indigo-600 bg-indigo-100/70',
+    },
+    gray: {
+      bg: 'bg-slate-50/95 border-slate-100/80 text-slate-900',
+      border: 'border-slate-200/60',
+      progressBg: 'bg-slate-500',
+      defaultIcon: <IconInfoCircle className="w-5 h-5" />,
+      iconColor: 'text-slate-600 bg-slate-100/70',
+    },
   }
 
-  const iconColors = {
-    green: 'text-emerald-500',
-    red: 'text-rose-500',
-    yellow: 'text-amber-500',
-    blue: 'text-sky-500',
-    gray: 'text-slate-500',
-  }
+  const activeConfig = config[color] || config.blue
 
   return (
     <div
-      className={`p-4 rounded-xl border shadow-lg flex items-start gap-3 pointer-events-auto transition-all duration-300 transform translate-x-0 animate-slide-in ${
-        colorClasses[color] || colorClasses.blue
-      }`}
+      className={`relative w-full overflow-hidden rounded-2xl border backdrop-blur-md shadow-xl flex items-start gap-3 p-4 pointer-events-auto transition-all duration-300 transform translate-x-0 animate-slide-in-right ${activeConfig.bg} ${activeConfig.border}`}
       role="alert"
     >
-      {icon && <div className={`mt-0.5 shrink-0 ${iconColors[color]}`}>{icon}</div>}
-      <div className="flex-1 min-w-0">
-        {title && <p className="font-semibold text-sm leading-tight mb-0.5">{title}</p>}
-        {message && <p className="text-sm opacity-90 leading-normal">{message}</p>}
+      {/* Icon Section */}
+      <div className={`p-2 rounded-xl shrink-0 flex items-center justify-center ${activeConfig.iconColor}`}>
+        {icon || activeConfig.defaultIcon}
       </div>
+
+      {/* Text Content */}
+      <div className="flex-1 min-w-0 pr-2">
+        {title && <p className="font-bold text-sm tracking-tight leading-snug mb-0.5">{title}</p>}
+        {message && <p className="text-xs font-medium leading-relaxed opacity-85">{message}</p>}
+      </div>
+
+      {/* Dismiss Button */}
       <button
         onClick={() => onDismiss(id)}
-        className="shrink-0 p-1 hover:bg-black/5 rounded-lg transition-colors text-black/40 hover:text-black/70"
+        className="shrink-0 p-1 hover:bg-black/5 text-slate-400 hover:text-slate-700 rounded-lg transition-colors cursor-pointer"
+        aria-label="Cerrar notificación"
       >
-        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-        </svg>
+        <IconX className="w-4 h-4" />
       </button>
+
+      {/* Time Progress Bar */}
+      {duration > 0 && (
+        <div className="absolute bottom-0 left-0 right-0 h-[3px] bg-black/5">
+          <div
+            className={`h-full transition-all duration-75 ease-linear ${activeConfig.progressBg}`}
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      )}
     </div>
   )
 }

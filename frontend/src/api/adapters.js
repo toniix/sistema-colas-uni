@@ -85,5 +85,6 @@ export const adaptAuditoria = (a) => ({
   valorNuevo: a.newValue ?? null,
   detalle: a.description ?? '',
   timestamp: a.createdAt,
+  ipAddress: a.ipAddress ?? '—',
 })
 

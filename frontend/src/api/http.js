@@ -44,14 +44,20 @@ let refreshPromise = null
 
 async function doRefresh() {
   const auth = getAuth()
-  if (!auth?.refreshToken) throw new ApiError('Sesión no iniciada', 401)
+  if (!auth?.refreshToken) {
+    notifyExpired()
+    throw new ApiError('Sesión no iniciada', 401)
+  }
 
   const res = await fetch(`${API_URL}/api/auth/refresh`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refreshToken: auth.refreshToken }),
   })
-  if (!res.ok) throw await toApiError(res)
+  if (!res.ok) {
+    notifyExpired()
+    throw await toApiError(res)
+  }
 
   const data = await res.json()
   const next = {
@@ -114,7 +120,9 @@ export async function request(path, opts = {}) {
   let res = await rawRequest(path, opts)
 
   // Token vencido: rotamos y reintentamos una sola vez.
-  if (res.status === 401 && opts.auth !== false && !opts._retried) {
+  // Algunos backends devuelven 403 en lugar de 401 cuando el JWT expiró,
+  // por eso interceptamos ambos (solo en el primer intento, no en el retry).
+  if ((res.status === 401 || res.status === 403) && opts.auth !== false && !opts._retried) {
     try {
       const newToken = await refreshToken()
       res = await rawRequest(path, { ...opts, token: newToken, _retried: true })
