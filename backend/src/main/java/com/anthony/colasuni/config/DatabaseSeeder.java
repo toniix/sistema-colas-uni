@@ -1,11 +1,13 @@
 package com.anthony.colasuni.config;
 
 import com.anthony.colasuni.entity.ServiceEntity;
+import com.anthony.colasuni.entity.SystemSetting;
 import com.anthony.colasuni.entity.User;
 import com.anthony.colasuni.enums.AuditAction;
 import com.anthony.colasuni.enums.AuditResult;
 import com.anthony.colasuni.enums.RoleEnum;
 import com.anthony.colasuni.repository.ServiceRepository;
+import com.anthony.colasuni.repository.SystemSettingRepository;
 import com.anthony.colasuni.repository.UserRepository;
 import com.anthony.colasuni.service.AuditService;
 import lombok.RequiredArgsConstructor;
@@ -21,18 +23,32 @@ public class DatabaseSeeder implements CommandLineRunner {
 
     private final UserRepository userRepository;
     private final ServiceRepository serviceRepository;
+    private final SystemSettingRepository systemSettingRepository;
     private final PasswordEncoder passwordEncoder;
     private final AuditService auditService;
 
     @Override
     public void run(String... args) {
+        if (systemSettingRepository.count() == 0) {
+            SystemSetting defaultSettings = SystemSetting.builder()
+                    .id(1L)
+                    .universityName("Universidad Nacional")
+                    .systemName("Sistema de Colas")
+                    .logoBase64(null)
+                    .coverBase64(null)
+                    .configured(false)
+                    .build();
+            systemSettingRepository.save(defaultSettings);
+            log.info("Configuración de branding semilla inicializada.");
+        }
+
         if (userRepository.count() == 0) {
             log.info("Base de datos vacía. Iniciando inserción de datos semilla...");
 
             // 1. Crear Administrador
             User admin = User.builder()
                     .username("admin")
-                    .email("admin@uni.edu.pe")
+                    .email("admin@unica.edu.pe")
                     .fullName("Administrador Sistema Colas")
                     .password(passwordEncoder.encode("admin123"))
                     .role(RoleEnum.ADMIN)
@@ -44,7 +60,7 @@ public class DatabaseSeeder implements CommandLineRunner {
             // 2. Crear Operador
             User operator = User.builder()
                     .username("operador")
-                    .email("operador@uni.edu.pe")
+                    .email("operador@unica.edu.pe")
                     .fullName("Juan Pérez (Operador MAT)")
                     .password(passwordEncoder.encode("operador123"))
                     .role(RoleEnum.OPERATOR)
@@ -56,7 +72,7 @@ public class DatabaseSeeder implements CommandLineRunner {
             // 3. Crear Estudiante
             User student = User.builder()
                     .username("estudiante")
-                    .email("estudiante@uni.edu.pe")
+                    .email("estudiante@unica.edu.pe")
                     .fullName("Carlos Gómez (Estudiante)")
                     .password(passwordEncoder.encode("estudiante123"))
                     .role(RoleEnum.STUDENT)

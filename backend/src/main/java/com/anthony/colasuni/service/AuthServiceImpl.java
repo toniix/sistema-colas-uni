@@ -53,6 +53,7 @@ public class AuthServiceImpl implements AuthService {
                     new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword()));
 
             User user = userRepository.findByUsername(request.getUsername())
+                    .or(() -> userRepository.findByEmail(request.getUsername()))
                     .orElseThrow(() -> new ResourceNotFoundException("Usuario no encontrado"));
 
             if (!user.isEnabled()) {
@@ -76,7 +77,9 @@ public class AuthServiceImpl implements AuthService {
                     .build();
 
         } catch (Exception ex) {
-            User user = userRepository.findByUsername(request.getUsername()).orElse(null);
+            User user = userRepository.findByUsername(request.getUsername())
+                    .or(() -> userRepository.findByEmail(request.getUsername()))
+                    .orElse(null);
             // Usar LOGIN_FAILED para distinguir intentos fallidos de logins exitosos
             auditService.logAction(AuditAction.LOGIN_FAILED, "User",
                     user != null ? user.getId() : 0L, null, null,

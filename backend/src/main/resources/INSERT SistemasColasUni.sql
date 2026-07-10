@@ -1,4 +1,4 @@
-USE SistemasColasUni;
+-- USE SistemasColasUni; -- Omitir en Azure SQL Database ya que no soporta la sentencia USE
 
 SET NOCOUNT ON;
 INSERT INTO users(username,password,email,full_name,role,enabled,created_at) VALUES

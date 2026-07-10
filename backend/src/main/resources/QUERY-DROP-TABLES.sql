@@ -3,6 +3,7 @@
 -- SQL SERVER
 -- ===========================================================
 
+
 IF OBJECT_ID('dbo.audit_logs', 'U') IS NOT NULL
 BEGIN
     DROP TABLE dbo.audit_logs;
@@ -20,6 +21,11 @@ BEGIN
     DROP TABLE dbo.tickets;
 END
 GO
+IF OBJECT_ID('dbo.system_settings', 'U') IS NOT NULL
+BEGIN
+    DROP TABLE dbo.system_settings;
+END
+GO
 
 IF OBJECT_ID('dbo.services', 'U') IS NOT NULL
 BEGIN
@@ -32,5 +38,7 @@ BEGIN
     DROP TABLE dbo.users;
 END
 GO
+
+
 
 PRINT 'Todas las tablas fueron eliminadas correctamente.';
