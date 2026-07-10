@@ -43,7 +43,7 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
      */
     @Query("SELECT t FROM Ticket t WHERE t.operator.id = :operatorId " +
            "AND t.status IN ('CALLED', 'IN_ATTENTION')")
-    Optional<Ticket> findActiveTicketByOperator(@Param("operatorId") Long operatorId);
+    List<Ticket> findActiveTicketByOperator(@Param("operatorId") Long operatorId);
 
     /**
      * Devuelve la cola activa de un servicio (status IN_QUEUE),
@@ -64,7 +64,7 @@ public interface TicketRepository extends JpaRepository<Ticket, Long> {
      */
     @Query("SELECT t FROM Ticket t WHERE t.service.id = :serviceId " +
            "AND t.status IN ('CALLED', 'IN_ATTENTION')")
-    Optional<Ticket> findCurrentActiveByService(@Param("serviceId") Long serviceId);
+    List<Ticket> findCurrentActiveByService(@Param("serviceId") Long serviceId);
 
     /**
      * Devuelve todos los tickets de un estudiante.

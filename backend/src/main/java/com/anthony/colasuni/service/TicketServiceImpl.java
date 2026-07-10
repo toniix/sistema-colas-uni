@@ -40,6 +40,7 @@ public class TicketServiceImpl implements TicketService {
     private final ServiceRepository serviceRepository;
     private final UserRepository userRepository;
     private final AuditService auditService;
+    private final SseEmitterRegistry sseEmitterRegistry;
 
     // ──────────────────────────────────────────────────────────────
     // Crear turno
@@ -94,7 +95,12 @@ public class TicketServiceImpl implements TicketService {
                     null, savedTicket, "Turno creado: " + ticketCode + " | Prioridad: " + priority,
                     AuditResult.OK);
 
-            return TicketMapper.toResponse(savedTicket);
+            TicketResponse response = TicketMapper.toResponse(savedTicket);
+            
+            // Publicar evento en SSE de que hay un nuevo turno en cola
+            publishQueueUpdate(serviceId, TicketStatus.IN_QUEUE);
+
+            return response;
         } catch (Exception ex) {
             auditService.logAction(AuditAction.CREATE_TICKET, "Ticket", 0L, null, null,
                     "Fallo al crear turno para servicio ID " + serviceId + ": " + ex.getMessage(),
@@ -128,7 +134,8 @@ public class TicketServiceImpl implements TicketService {
     @Transactional(readOnly = true)
     public TicketResponse getActiveTicketForCurrentOperator() {
         User operator = getCurrentUser();
-        return ticketRepository.findActiveTicketByOperator(operator.getId())
+        return ticketRepository.findActiveTicketByOperator(operator.getId()).stream()
+                .findFirst()
                 .map(TicketMapper::toResponse)
                 .orElse(null);
     }
@@ -148,11 +155,13 @@ public class TicketServiceImpl implements TicketService {
                             "El operador no está asignado a ningún servicio", HttpStatus.BAD_REQUEST));
 
             // Regla 3: Un operador solo puede atender un turno a la vez
-            ticketRepository.findActiveTicketByOperator(operator.getId()).ifPresent(active -> {
+            List<Ticket> activeTickets = ticketRepository.findActiveTicketByOperator(operator.getId());
+            if (!activeTickets.isEmpty()) {
+                Ticket active = activeTickets.get(0);
                 throw new OperatorBusyException(
                         "Ya tienes un turno activo en llamado o atención: " + active.getTicketCode()
                         + ". Finaliza o deriva ese turno antes de llamar el siguiente.");
-            });
+            }
 
             // Buscar siguiente en cola: PREFERENTE primero, luego FIFO
             List<Ticket> nextTickets = ticketRepository.findNextInQueue(service.getId(), PageRequest.of(0, 1));
@@ -180,7 +189,12 @@ public class TicketServiceImpl implements TicketService {
                     "Estado: " + oldStatus, "Estado: " + TicketStatus.CALLED,
                     "Turno llamado por el operador " + operator.getUsername(), AuditResult.OK);
 
-            return TicketMapper.toResponse(savedTicket);
+            TicketResponse response = TicketMapper.toResponse(savedTicket);
+
+            // Publicar evento en SSE de que el turno fue llamado
+            publishQueueUpdate(service.getId(), TicketStatus.CALLED);
+
+            return response;
         } catch (Exception ex) {
             auditService.logAction(AuditAction.CALL, "Ticket", 0L, null, null,
                     "Fallo al llamar siguiente turno: " + ex.getMessage(), operator, AuditResult.ERROR);
@@ -216,7 +230,12 @@ public class TicketServiceImpl implements TicketService {
                     "Estado: " + oldStatus, "Estado: " + TicketStatus.IN_ATTENTION,
                     "Inició la atención del turno", AuditResult.OK);
 
-            return TicketMapper.toResponse(savedTicket);
+            TicketResponse response = TicketMapper.toResponse(savedTicket);
+
+            // Publicar evento en SSE de que inició la atención
+            publishQueueUpdate(savedTicket.getService().getId(), TicketStatus.IN_ATTENTION);
+
+            return response;
         } catch (Exception ex) {
             auditService.logAction(AuditAction.CALL, "Ticket", ticketId, null, null,
                     "Fallo al iniciar atención de turno ID " + ticketId + ": " + ex.getMessage(),
@@ -256,7 +275,12 @@ public class TicketServiceImpl implements TicketService {
                     "Estado: " + oldStatus, "Estado: " + TicketStatus.FINISHED,
                     "Turno finalizado con éxito", AuditResult.OK);
 
-            return TicketMapper.toResponse(savedTicket);
+            TicketResponse response = TicketMapper.toResponse(savedTicket);
+
+            // Publicar evento en SSE de que el turno finalizó
+            publishQueueUpdate(savedTicket.getService().getId(), TicketStatus.FINISHED);
+
+            return response;
         } catch (Exception ex) {
             auditService.logAction(AuditAction.FINISH, "Ticket", ticketId, null, null,
                     "Fallo al finalizar turno ID " + ticketId + ": " + ex.getMessage(),
@@ -306,7 +330,12 @@ public class TicketServiceImpl implements TicketService {
                     "Estado: " + oldStatus, "Estado: " + TicketStatus.CANCELLED,
                     "Turno anulado. Motivo: " + request.getObservation(), AuditResult.OK);
 
-            return TicketMapper.toResponse(savedTicket);
+            TicketResponse response = TicketMapper.toResponse(savedTicket);
+
+            // Publicar evento en SSE de que el turno se canceló
+            publishQueueUpdate(savedTicket.getService().getId(), TicketStatus.CANCELLED);
+
+            return response;
         } catch (Exception ex) {
             auditService.logAction(AuditAction.CANCEL, "Ticket", ticketId, null, null,
                     "Fallo al anular turno ID " + ticketId + ": " + ex.getMessage(),
@@ -377,7 +406,13 @@ public class TicketServiceImpl implements TicketService {
                     "Turno creado por derivación de " + ticket.getTicketCode() + ". Nuevo código: " + newTicketCode,
                     AuditResult.OK);
 
-            return TicketMapper.toResponse(savedOriginal);
+            TicketResponse response = TicketMapper.toResponse(savedOriginal);
+
+            // Publicar eventos en SSE: de donde sale (derivado/finalizado) y a donde ingresa (en cola)
+            publishQueueUpdate(savedOriginal.getService().getId(), TicketStatus.DERIVED);
+            publishQueueUpdate(targetService.getId(), TicketStatus.IN_QUEUE);
+
+            return response;
         } catch (Exception ex) {
             auditService.logAction(AuditAction.DERIVE, "Ticket", ticketId, null, null,
                     "Fallo al derivar turno ID " + ticketId + ": " + ex.getMessage(),
@@ -399,8 +434,10 @@ public class TicketServiceImpl implements TicketService {
         List<Ticket> activeQueue = ticketRepository.findQueueByService(serviceId);
         long queueSize = activeQueue.size();
 
-        // Busca el ticket actualmente llamado o en atención (query específica, sin findAll)
-        Ticket currentTicket = ticketRepository.findCurrentActiveByService(serviceId).orElse(null);
+        // Busca el ticket actualmente llamado o en atención (query específica, sin el orElse de Optional)
+        Ticket currentTicket = ticketRepository.findCurrentActiveByService(serviceId).stream()
+                .findFirst()
+                .orElse(null);
 
         int estimatedWaitMinutes = (int) queueSize * 5; // estimado: 5 min por turno
 
@@ -493,4 +530,18 @@ public class TicketServiceImpl implements TicketService {
         return userRepository.findByUsername(username)
                 .orElseThrow(() -> new ResourceNotFoundException("Usuario actual no encontrado en el sistema"));
     }
+
+    private void publishQueueUpdate(Long serviceId, TicketStatus status) {
+        try {
+            com.anthony.colasuni.dto.sse.QueueUpdateEvent event = new com.anthony.colasuni.dto.sse.QueueUpdateEvent(
+                    serviceId,
+                    status.name(),
+                    getQueueStatus(serviceId)
+            );
+            sseEmitterRegistry.publish(serviceId, event);
+        } catch (Exception e) {
+            // Capturar silenciosamente cualquier error para no interrumpir el flujo transaccional principal
+        }
+    }
 }
+
